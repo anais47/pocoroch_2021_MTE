@@ -1,0 +1,793 @@
+---
+title: "Pocoroch : Modifications des données TR et TC"
+author: "Anaïs Rey"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  rmdformats::readthedown:
+    code_folding: hide
+    gallery: yes
+    highlight: tango
+    lightbox: yes
+    thumbnails: no
+    toc_depth: 6
+    number_sections: true
+    #css: styles.css # if we want to save the styles in a css and call it inside of having it inside the case as here.
+    #https://github.com/juba/rmdformats/blob/master/inst/templates/readthedown/readthedown.css
+    #https://stackoverflow.com/questions/42935320/how-to-change-the-color-theme-on-rmdformats-readthedown
+editor_options:
+  chunk_output_type: console
+---
+
+<script>
+   $(document).ready(function() {
+     $head = $('#header');
+     $head.prepend('<img src=\"logo_rmd_pocoroch.png\" style=\"float: right;width: 150px;\"/>')
+   });
+</script>
+
+<style>
+#sidebar {
+  background: seagreen;
+}
+
+#sidebar h2{
+    z-index:200;
+    background-color:#7fcdbb;
+    text-align:center;
+    padding:0.809em;
+    display:block;
+    color:#fcfcfc;
+    font-size: 100%;
+    margin-top: 0px;
+    margin-bottom:0.809em;
+}
+
+#postamble {
+  background:steelblue;
+  border-top:solid 10px #003366;
+}
+
+.title {
+  text-align: center;
+}
+
+.subtitle {
+  color: #edf8b1;
+}
+
+h1, h2, h3, h4, h5, h6, legend {
+  color: #003366;
+  font-weight:bold;
+}
+
+
+#content h1 {
+    background-color: white;
+    color: #8c510a;
+}
+
+#content h2 {
+    color: #bf812d;
+}
+
+#content h3 {
+    color: #dfc27d;
+}
+
+</style>
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE, cache = FALSE)
+```
+
+**But du script: **
+
+Faire les modifications nécéssaires des jeux pour harmoniser les bases ainsi que gérer modifications de données (ex prof manquantes, etc)
+
+# Load packages 
+
+```{r packages}
+library(dplyr)
+library(rlist)
+library(tidyr)
+library(stringr)
+library(knitr)
+library(forcats)
+```
+
+# Set working directory
+
+```{r}
+#setwd("C:/Users/arey/Documents/01_Patrinat/02_Pocoroch_projet/01_Analyses/02_Analyses_rapportMTE_Sept2021/")
+```
+
+
+# Import data
+
+```{r}
+TR <- read.csv2("C:/Users/arey/Documents/01_Patrinat/02_Pocoroch_projet/01_Analyses/01_Manip_base_ACCESS/Etape4_Access//Transect/BASE_ACCESS/TR_Immersion Requête_poisson+site_centrale_30JUIN2021.csv", na.strings = c("", " ", NA, "NA"))
+TC <- read.csv2("C:/Users/arey/Documents/01_Patrinat/02_Pocoroch_projet/01_Analyses/01_Manip_base_ACCESS/Etape4_Access//Timecount/BASE_ACCESS/TC_Immersion Requête_poisson+site_centrale_25JUIN2021.csv", na.strings = c("", " ", NA, "NA"))
+```
+
+# Separate day-month-year of sampling
+
+```{r}
+TR.v1 <- TR %>% separate(Date, c("day", "month", "year"), remove = F)
+TC.v1 <- TC %>% separate(Date, c("day", "month", "year"), remove = F)
+
+TR.v1 <- TR.v1 %>% mutate(method="TR")
+TC.v1 <- TC.v1 %>% mutate(method="TC")
+```
+
+# Rename some columns
+  
+```{r}
+TR.v1 <- TR.v1 %>% rename(site = Referentiel_site_site)
+TC.v1 <- TC.v1 %>% rename(no_transect = no_parcours)
+
+# homogeniez no_species
+
+TR.v1 <- TR.v1 %>% mutate(nomCite = gsub("No species", "No_species", nomCite))
+```
+
+
+# Add a column with season1 and 2
+  
+```{r}
+# --- TR ---
+TR.v1 %>%
+  distinct(idSINPRegroupement_tran ,month, area, site) %>%
+  group_by(month, area, site) %>%
+  tally() %>%
+  spread(month,n) %>% kable()
+
+TR.v1 %>% filter(site=="Buharats") %>% distinct(Date, month, year, day) %>% arrange(year, month, day) %>% kable()
+
+TR.v1 %>% filter(area=="Tregor") %>% distinct(Date, month, year, day) %>% arrange(year, month, day) %>% kable()
+
+# on coupe un peu aléatoirement les sites au 15 aout (avant saison 1 et après saison 2)
+TR.v1 <- TR.v1 %>% 
+  mutate(day=as.numeric(day),
+         month=as.numeric(month)) %>%
+  mutate(saison = case_when(day < 15 & month == 08 ~ "saison1",
+                            month < 08 ~ "saison1",
+                            day > 15 & month == 08 ~ "saison2",
+                            month > 08 ~ "saison2"))
+
+# --- TC ---
+TC.v1 %>%
+  distinct(idSINPRegroupement_tran ,month, area, site) %>%
+  group_by(month, area, site) %>%
+  tally() %>%
+  spread(month,n) %>% kable()
+
+TC.v1 %>% filter(area=="Tregor") %>% distinct(Date, month, year, day) %>% arrange(year, month, day)
+
+# on coupe un peu aléatoirement les sites au 15 aout (avant saison 1 et après saison 2)
+TC.v1 <- TC.v1 %>% 
+  mutate(day=as.numeric(day),
+         month=as.numeric(month)) %>%
+  mutate(saison = case_when(day < 15 & month == 08 ~ "saison1",
+                            month < 08 ~ "saison1",
+                            day > 15 & month == 08 ~ "saison2",
+                            month > 08 ~ "saison2"))
+```
+
+# Remove non-targeted transect
+
+On supprime les observations hors parcours : entre les transect, Cmax et Hmax et Hx_MaxViz et Cx_MV  (obs d'espèces à une plus grande distance que le protocole pendant le transect)
+  
+```{r}
+TR.v2 <- TR.v1 %>%
+    filter(techniqueEchantillonnage_tran!="inter") %>%
+    filter(!str_detect(no_transect, "inter|tsup")) %>%
+    filter(!str_detect(role, "max")) %>%
+  filter(!str_detect(no_section, "_MV"))
+
+TC.v2 <- TC.v1 %>% filter(no_transect!="inter")
+```
+
+# Remove non-targeted species
+
+```{r}
+not.a.fish <- c("Cancer pagurus","Maja squinado",
+                "Homarus gammarus", "Dromia personata",
+                "Octopus vulgaris", "Sepia officinalis", 
+                "Palinurus elephas", "indetermine spp", 
+                "Galathea strigosa", "Loligo vulgaris")
+
+unique(c(TC.v2$nomCite, TR.v2$nomCite))
+
+TR.v2 <- TR.v2 %>% filter(!nomCite %in% not.a.fish)
+TC.v2 <- TC.v2 %>% filter(!nomCite %in% not.a.fish)
+
+unique(c(TC.v2$nomCite, TR.v2$nomCite))
+```
+
+# Remove taxon fl & autres modifs
+
+Convenu avec Pierre : 
+
+  + à part Ammotidae et Mugilidae pour lesquels ils ne font pas la différence, on enlève tous les familles
+  
+  + Pomatochistus minutus et microps devient Pomatochistus spp. car ils ne font pas bien la distinction 
+  
+  + Scomber scombrus devient Scomber spp
+  
+  + Symphodus spp  à virer pour éviter de remonter au niveau genre les S.melops
+  
+  + Syngnatus spp devient Syngnatidae fl (à garde en tête qu'ici on ne se refère qu'au syngnathe et non pas aux hippocampes qui sont dans la même famille)
+
+```{r}
+fm.lv.to.rm <- unique(c(TC.v2$nomCite, TR.v2$nomCite)) %>%
+  as.data.frame() %>%
+  rename(nomCite=".") %>%
+  filter(str_detect(nomCite, "dae fl")) %>%
+  filter(nomCite!="Ammodytidae fl" & nomCite!="Mugilidae fl" & nomCite!="Syngnathidae fl") %>%
+  pull(nomCite)
+
+TR.v3 <- TR.v2 %>%
+  mutate(nomCite.2 = case_when(nomCite == "Pomatoschistus minutus" | nomCite == "Pomatoschistus microps" ~ "Pomatoschistus spp",
+                                                nomCite == "Scomber scombrus" ~ "Scomber spp",
+                                                nomCite == "Syngnathus spp" ~ "Syngnathidae fl", 
+                                                TRUE ~ nomCite)) %>%
+  filter(nomCite.2 != "Symphodus spp") %>%
+  filter(nomCite.2 != "Raja spp") %>%
+  filter(!nomCite.2 %in% fm.lv.to.rm) %>%
+  select(-nomCite) %>%
+  rename(nomCite = nomCite.2)
+
+
+TC.v3 <- TC.v2 %>%
+  mutate(nomCite.2 = case_when(nomCite == "Pomatoschistus minutus" | nomCite == "Pomatoschistus microps" ~ "Pomatoschistus spp",
+                                                nomCite == "Scomber scombrus" ~ "Scomber spp",
+                                                nomCite == "Syngnathus spp" ~ "Syngnathidae fl", 
+                                                TRUE ~ nomCite)) %>%
+  filter(nomCite.2 != "Symphodus spp") %>%
+  filter(nomCite.2 != "Raja spp") %>%
+  filter(!nomCite.2 %in% fm.lv.to.rm)%>%
+  select(-nomCite) %>%
+  rename(nomCite = nomCite.2)
+
+unique(c(TC.v3$nomCite, TR.v3$nomCite))
+
+# on vérifie qu'on pas perdu de transect ou section
+length(unique(TC.v2$idSINPRegroupement_tran))==length(unique(TC.v3$idSINPRegroupement_tran))
+
+length(unique(TR.v2$idSINPRegroupement_sec))==length(unique(TR.v3$idSINPRegroupement_sec))
+
+# on chek dimensions
+dim(TC.v2)
+dim(TC.v3)
+
+dim(TR.v2)
+dim(TR.v3)
+```
+
+
+# Sampling depth setting
+
+Quand les données de profondeurs des strates visées ne sont pas disponibles, on essait de les récupérer à partir des données de profondeurs des rôles et de la hauteur d'eau.
+
+  + **Pour transect :** il y a toutes les hauteurs d'eau
+  + **Pour time-count :** i y a des hauteurs d'eau manquantes et il y a 2 types des hauteur d'eau niveau immersion et niveua transect
+
+## Transect
+### Rajout prof à partir des roles
+
+```{r}
+# --- on rajoute la strate quand il y a les données de prof_cible_corr et hauteaur d'eau
+TR.v3.tmp <- TR.v3 %>% 
+  # transects pour lesquels il manque juste de créer la valeur prof_cible_corr
+  filter(is.na(prof_cible_corr) & !is.na(prof_cible_reel)) %>%
+  mutate(prof_real_corr.forgotten =  prof_cible_reel - hauteur_eau) %>%
+  # on rajoute la strate (prof_cible_corr) en fonction de la profondeur réalisée corrigée
+  mutate(prof_cible_corr = case_when(
+                                between(prof_real_corr.forgotten, 1,5.9) ~ 3,
+                                between(prof_real_corr.forgotten, 6.0,10.9) ~ 8,
+                                between(prof_real_corr.forgotten, 11.0,15.9) ~ 13,
+                                between(prof_real_corr.forgotten, 16.0,20.9) ~ 18,
+                                between(prof_real_corr.forgotten, 21.0,25.9) ~ 23,
+                                between(prof_real_corr.forgotten, 26.0,30.9) ~ 28)
+         ) 
+
+# on reconstruit le jeu 
+TR.v3.tmp.pull <- TR.v3.tmp %>% distinct(idSINPRegroupement_tran) %>% pull()
+
+TR.v4 <- TR.v3 %>%
+  filter(!idSINPRegroupement_tran %in% TR.v3.tmp.pull) %>%
+  bind_rows(TR.v3.tmp)
+
+# --- on récupère les transects avec pas de données de profondeurs au niv du transect
+df.noprof <- TR.v4 %>%
+  filter(is.na(prof_cible_corr) & is.na(prof_cible_reel)) 
+
+# --- on regarde les types de combinaison de plongeur
+df.noprof %>%
+  distinct(techniqueEchantillonnage_tran, idSINPRegroupement_tran, role) %>%
+  group_by(techniqueEchantillonnage_tran, role) %>% tally() %>% spread(role, n) %>%
+  kable()
+
+df.noprof %>%
+  distinct(techniqueEchantillonnage_tran, idSINPRegroupement_tran, 
+           role,profondeurMin_reel, profondeurMax_reel) %>%
+  group_by(techniqueEchantillonnage_tran) %>%
+  distinct(profondeurMin_reel, profondeurMax_reel) %>%
+  arrange(techniqueEchantillonnage_tran) %>%
+  kable()
+# on voit que pour les Cx et Hx il n'y a que des NA dans les prof des rôles donc on mets NA
+  
+# --- on choisit la profondeur des rôles qu'on veut utiliser pour le niv transect
+
+# Pour les HB : On garde la profondeur moyenne entre la min et max du rôle B, mais quand il n'y a pas de données pour le role B, on prends celle du rôle H et on rajoute +1m
+
+df.noprof.HB <- df.noprof %>%
+  distinct(idSINPRegroupement_tran, techniqueEchantillonnage_tran, 
+           idSINPRegroupement_role, role, 
+           profondeurMax_reel, profondeurMin_reel, site) %>% 
+  filter(techniqueEchantillonnage_tran=="HB") %>%
+  mutate(prof_NEW_reel_tmp = case_when(techniqueEchantillonnage_tran == "HB" & str_detect(role, "B1|B2") ~ rowMeans(select(., starts_with("profondeurM")), na.rm = TRUE),
+                                   techniqueEchantillonnage_tran == "HB" & str_detect(role, "H2|H3|H4") ~ rowMeans(select(., starts_with("profondeurM")), na.rm = TRUE))) %>%
+  select(-profondeurMin_reel, -profondeurMax_reel) 
+
+# on garde les transects qui ont les données pour le role B et on crée la variable prof_NEW_reel
+df.noprof.HB.B <- df.noprof.HB %>% filter(str_detect(role, "B1|B2") & !is.na(prof_NEW_reel_tmp)) %>%
+  rename(prof_NEW_reel = prof_NEW_reel_tmp)
+
+df.noprof.HB.B.pull <- df.noprof.HB.B %>% pull(idSINPRegroupement_tran)
+
+# on garde les transects avec NA en B et on fait la moyenne des rôles H et B (vu que NA en B, c'est comme si on garde la valeur de B) et on rajoute +1m et on crée la variable prof_NEW_reel
+df.noprof.HB.H <- df.noprof.HB %>% 
+  filter(!idSINPRegroupement_tran %in% df.noprof.HB.B.pull) %>%
+  group_by(idSINPRegroupement_tran) %>%
+  mutate(prof_NEW_reel = mean(prof_NEW_reel_tmp, na.rm = TRUE)) %>%
+  mutate(prof_NEW_reel = prof_NEW_reel + 1)
+
+
+# Pour les CC: on récupère la prof min des prof min des rôles et pareil pour max et on fait la moyenne 
+df.noprof.CC <- df.noprof %>%
+  distinct(idSINPRegroupement_tran, techniqueEchantillonnage_tran, 
+           idSINPRegroupement_role, role, 
+           profondeurMax_reel, profondeurMin_reel, site) %>% 
+  filter(techniqueEchantillonnage_tran=="CC" ) %>%
+  group_by(idSINPRegroupement_tran) %>%
+  mutate(min_des_roles =  min(profondeurMin_reel, na.rm = TRUE),
+         max_des_roles = max(profondeurMax_reel, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(prof_NEW_reel = rowMeans(select(., ends_with("roles")), na.rm = TRUE)) 
+
+#  Pour les Hx ou Cx: on a vu que pour les Cx et Hx il n'y a que des NA dans les prof des rôles donc on mets NA à la variable prof_NEW_reel
+df.noprof.x <- df.noprof %>%
+  distinct(idSINPRegroupement_tran, techniqueEchantillonnage_tran, 
+           idSINPRegroupement_role, role, 
+           profondeurMax_reel, profondeurMin_reel, site) %>% 
+  filter(techniqueEchantillonnage_tran=="Hx" | techniqueEchantillonnage_tran=="Cx") %>%
+ mutate(prof_NEW_reel =NA ) 
+
+# --- on recree le dataset des données sans profondeur
+df.prof.tmp <- bind_rows(df.noprof.CC, 
+                         df.noprof.HB.H, df.noprof.HB.B, 
+                         df.noprof.x) %>%
+  select(idSINPRegroupement_tran, prof_NEW_reel) %>%
+  distinct() %>%
+  rename(prof_cible_reel.v2 = prof_NEW_reel)
+
+df.noprof.OK <- df.noprof %>%
+  left_join(df.prof.tmp) %>%
+  # on calcule la profondeur réalisée corrigée : prof_cible_reel - hauteur d'eau
+   mutate(prof_real_corr = prof_cible_reel.v2 - hauteur_eau) %>%
+  # on rajoute la strate (prof_cible_corr) en fonction de la profondeur réalisée corrigée
+  mutate(prof_cible_corr.v2 = case_when(between(prof_real_corr, 1,5.9) ~ 3,
+                                between(prof_real_corr, 6.0,10.9) ~ 8,
+                                between(prof_real_corr, 11.0,15.9) ~ 13,
+                                between(prof_real_corr, 16.0,20.9) ~ 18,
+                                between(prof_real_corr, 21.0,25.9) ~ 23,
+                                between(prof_real_corr, 26.0,30.9) ~ 28)) 
+  
+df.noprof.OK.pull <- df.noprof.OK %>% distinct(idSINPRegroupement_role) %>% pull()
+
+# --- on cree le jeu final
+
+TR.prof.tmp <- TR.v4 %>%
+  mutate(prof_cible_reel.v2 = prof_cible_reel) %>%
+  mutate(prof_cible_corr.v2 = prof_cible_corr) %>%
+  filter(!idSINPRegroupement_role %in% df.noprof.OK.pull) %>%
+  bind_rows(df.noprof.OK) %>%
+  # on calcule la profondeur réalisée corrigée : prof_cible_reel - hauteur d'eau
+   mutate(prof_real_corr = case_when(is.na(prof_real_corr.forgotten) ~ prof_cible_reel.v2 - hauteur_eau,
+                                     !is.na(prof_real_corr.forgotten) ~ prof_real_corr.forgotten)) %>%
+  select(-prof_real_corr.forgotten)
+
+# on vérifie les nombres de lignes sont les mêmes
+dim(TR.v4)
+dim(TR.prof.tmp)
+```
+
+###  Résumé
+
+```{r}
+TR.prof.tmp %>%
+  distinct(year, area, 
+           idSINPRegroupement_tran, prof_cible_corr, prof_cible_corr.v2) %>%
+  mutate(comp = case_when(is.na(prof_cible_corr) & !is.na(prof_cible_corr.v2) ~ "rajouté",
+                          is.na(prof_cible_corr) & is.na(prof_cible_corr.v2) ~ "toujours NA",
+                          !is.na(prof_cible_corr) & !is.na(prof_cible_corr.v2) ~ "déja là")) %>%
+  group_by(year, area, comp) %>%
+  tally() %>% spread(comp, n) %>%
+  kable(caption="TR: resume avec HE de l'immersion")
+
+TR.prof.tmp %>%
+  filter(year!="2016") %>%
+  filter(is.na(prof_cible_corr.v2)) %>%
+  distinct(area,
+           idSINPRegroupement_tran, no_transect,
+           Date, year, code_site,
+           heure_immersion, no_immersion, no_palanquee,
+           prof_cible_reel, prof_cible_reel.v2,
+           prof_cible_corr, prof_cible_corr.v2,
+           prof_real_corr,
+           hauteur_eau) %>% 
+  select(-idSINPRegroupement_tran) %>%
+  unite(new, c(area, Date, year, code_site, heure_immersion, no_immersion, no_palanquee, no_immersion, no_transect)) %>%
+  kable(caption="TR: transect avec 0 donnees de prof niveau transect et role pour 2020")
+
+TR.prof.tmp %>% filter(site=="Mouillage de Tregastel (herbier)") %>%
+  distinct(idSINPRegroupement_tran, saison, year, prof_cible_corr.v2) %>%
+  group_by(prof_cible_corr.v2,saison, year) %>%
+  tally() %>% kable()
+```
+
+
+
+Tous les transects du mouillage de tregastel en 2020 - à cause de la hauteur d'immersion plus grande que la prof_real_cible calculées à partir des données de plongeurs, la prof_corr_cible <0 du coup on va changer manuellement en -3m car c'est la plus petite strate ciblée.
+
+```{r}
+TR.prof.tmp2 <- TR.prof.tmp %>%
+  mutate(prof_cible_corr.v3 = case_when(site=="Mouillage de Tregastel (herbier)" & year == "2020" ~ 3,
+                                        TRUE ~ prof_cible_corr.v2)) %>%
+  select(-prof_cible_corr.v2)
+```
+
+Strates écrites qui ne correspondent pas aux 3,8,13,18,23,28
+
+```{r}
+TR.prof.tmp2 %>%
+  filter(!str_detect(prof_cible_corr.v3, "3|8|13|18|23|28")) %>%
+  distinct(idSINPRegroupement_tran, area, site, year, prof_cible_corr.v3, prof_cible_reel, hauteur_eau) %>%
+  kable(caption="TR : Site avec strates non identifiées")
+```
+
+A part pour une erreur à ile d'yeu, les autres c'est que les prof_cible_corr = prof_real_corr donc il faut juste que je remette la strate associées
+
+
+```{r}
+tmp <- TR.prof.tmp2 %>%
+  filter(!str_detect(prof_cible_corr.v3, "3|8|13|18|23|28")) %>%
+  select(-prof_cible_corr.v3) %>%
+    # on rajoute la strate (prof_cible_corr) en fonction de la profondeur réalisée corrigée
+  mutate(prof_cible_corr.v3 = case_when(between(prof_real_corr, 1,5.9) ~ 3,
+                                between(prof_real_corr, 6.0,10.9) ~ 8,
+                                between(prof_real_corr, 11.0,15.9) ~ 13,
+                                between(prof_real_corr, 16.0,20.9) ~ 18,
+                                between(prof_real_corr, 21.0,25.9) ~ 23,
+                                between(prof_real_corr, 26.0,30.9) ~ 28)) 
+
+
+tmp.pull <- tmp %>% distinct(idSINPRegroupement_tran) %>% pull()
+
+# on recree le jeu final
+TR.prof.tmp3 <- TR.prof.tmp2 %>%
+  filter(!idSINPRegroupement_tran %in% tmp.pull) %>%
+  bind_rows(tmp) 
+
+dim(TR.prof.tmp2)==dim(TR.prof.tmp3)
+
+TR.prof.tmp3 %>%
+  distinct(prof_cible_corr.v3) %>% kable()
+```
+
+voir si on peut récuperer les niv de strates pour 2016?
+
+```{r}
+TR.prof.tmp3 %>%
+  filter(year==2016) %>%
+  distinct(prof_cible_reel.v2, prof_cible_corr.v3, profondeurMin_reel, profondeurMax_reel)
+
+TR.prof.tmp3 %>% filter(year==2016) %>% 
+  distinct(idSINPRegroupement_imm, idSINPRegroupement_tran, no_transect) %>%
+  group_by(idSINPRegroupement_imm) %>%
+  tally() %>% summary()
+```
+
+A moins de décider que le transect t1 = -18, t2 = -13, t3 = -8, t4 = -3, on ne peut pas statuer sur les strates pour 2016
+
+## Time-count
+### Hauteur eau 
+
+```{r}
+tmp.HE <- TC.v3 %>%
+  distinct(idSINPRegroupement_tran, year, heure_immersion, area, Date, site, no_transect,
+           hauteur_eau, hauteurEau_transect, prof_cible_corr, 
+           profondeurMin_reel, profondeurMax_reel) %>%
+  unite(new, c(hauteur_eau, hauteurEau_transect, prof_cible_corr, 
+           profondeurMin_reel, profondeurMax_reel), remove=F) %>%
+  mutate(dispo_HE = case_when(is.na(hauteur_eau) & is.na(hauteurEau_transect) ~ "NO-HE",
+                          is.na(hauteur_eau) & !is.na(hauteurEau_transect) ~ "NO-HE-imm",
+                          !is.na(hauteur_eau) & is.na(hauteurEau_transect) ~ "NO-HE-tran",
+                          !is.na(hauteur_eau) & !is.na(hauteurEau_transect) ~ "HE dispo")) %>%
+   mutate(comp_HE = case_when(hauteur_eau == hauteurEau_transect ~ "HE same",
+                          hauteur_eau != hauteurEau_transect ~ "HE diff")) 
+  
+tmp.HE %>%
+  group_by(dispo_HE, comp_HE) %>%
+  tally() %>% kable()
+
+#tmp.HE %>% 
+#  filter(dispo_HE=="HE dispo") %>%
+#  distinct(idSINPRegroupement_tran, year, area, comp_HE) %>%
+#  group_by( year, area, comp_HE) %>%
+#  tally()
+
+
+tmp.HE %>%
+  filter(dispo_HE=="NO-HE") %>%
+  distinct(prof_cible_corr)%>% kable()
+
+tmp.HE %>% filter(new=="NA_NA_NA_NA_NA")%>% kable()
+  
+tmp.HE %>%
+  filter(dispo_HE=="NO-HE") %>%
+  distinct(idSINPRegroupement_tran, site, year, Date, heure_immersion) %>%
+  group_by(site, year, Date, heure_immersion) %>%
+  tally() %>%
+  kable(caption="nb transect sans HE")
+
+#TC.v3 %>% filter(code_site=="BONO" | code_site=="TREG") %>%
+#  filter(year==2020) %>%
+#  distinct(year, code_site, Date, idSINPRegroupement_tran, 
+           #prof_cible_corr,
+           #hauteur_eau, hauteurEau_transect, 
+#           profondeurMin_reel, profondeurMax_reel, idSINPRegroupement_role, role) %>%
+#  select(-idSINPRegroupement_tran, -idSINPRegroupement_role)
+
+
+TC.v3 %>% filter(code_site=="BONO" | code_site=="TREG") %>%
+  filter(year!=2020) %>%
+  distinct(year, code_site, Date, prof_cible_corr)%>% kable()
+```
+
+### Rajout prof à partir des rôles
+```{r}
+#TC.v3 %>% 
+  # transects pour lesquels il manque juste de créer la valeur prof_cible_corr
+  #filter(is.na(prof_cible_corr) & !is.na(prof_cible_reel)) --> empty
+# donc il n'y a pas de cas où on peut rajouter la strate quand il y a les données de prof_cible_corr et hauteaur d'eau
+
+# --- 1 on récupère les transects avec pas de données de profondeurs au niv du transect
+df.noprof <- TC.v3 %>%
+  filter(is.na(prof_cible_corr) & is.na(prof_cible_reel)) 
+
+# --- 2 on regarde les types de combinaison de plongeur
+df.noprof %>%
+  distinct(techniqueEchantillonnage_tran, idSINPRegroupement_tran) %>%
+  group_by(techniqueEchantillonnage_tran) %>% tally() %>% kable()
+# les roles ci-dessous sont soit HB soit avec au moins 1 C et 1 N
+
+# --- 3 on choisit la profondeur des rôles qu'on veut utiliser pour le niv transect
+
+# -- Pour les HB : On garde la profondeur moyenne entre la min et max du rôle B, mais quand il n'y a pas de données pour le role B, on prends celle du rôle H et on rajoute +1m
+
+df.noprof.HB <- df.noprof %>%
+  distinct(idSINPRegroupement_tran, techniqueEchantillonnage_tran, 
+           idSINPRegroupement_role, role, 
+           profondeurMax_reel, profondeurMin_reel, site) %>% 
+  filter(techniqueEchantillonnage_tran=="HB") %>%
+  mutate(prof_NEW_reel_tmp = case_when(techniqueEchantillonnage_tran == "HB" & role == "B" ~ rowMeans(select(., starts_with("profondeurM")), na.rm = TRUE),
+                                   techniqueEchantillonnage_tran == "HB" & role == "H" ~ rowMeans(select(., starts_with("profondeurM")), na.rm = TRUE))) %>%
+  select(-profondeurMin_reel, -profondeurMax_reel) 
+
+# on garde les transects qui ont les données pour le role B et on crée la variable prof_NEW_reel
+df.noprof.HB.B <- df.noprof.HB %>% filter(role=="B" & !is.na(prof_NEW_reel_tmp)) %>%
+  rename(prof_NEW_reel = prof_NEW_reel_tmp)
+
+df.noprof.HB.B.pull <- df.noprof.HB.B %>% pull(idSINPRegroupement_tran)
+
+# on garde les transects avec NA en B et on fait la moyenne des rôles H et B (vu que NA en B, c'est comme si on garde la valeur de B) et on rajoute +1m et on crée la variable prof_NEW_reel
+df.noprof.HB.H <- df.noprof.HB %>% 
+  filter(!idSINPRegroupement_tran %in% df.noprof.HB.B.pull) %>%
+  group_by(idSINPRegroupement_tran) %>%
+  mutate(prof_NEW_reel = mean(prof_NEW_reel_tmp, na.rm = TRUE)) %>%
+  mutate(prof_NEW_reel = prof_NEW_reel + 1)
+
+
+# -- Pour les autres qui ont au moins C et N : on récupère la prof min des prof min des rôles et pareil pour max et on fait la moyenne 
+df.noprof.CN <- df.noprof %>%
+  distinct(idSINPRegroupement_tran, techniqueEchantillonnage_tran, 
+           idSINPRegroupement_role, role, 
+           profondeurMax_reel, profondeurMin_reel, site) %>% 
+  filter(techniqueEchantillonnage_tran!="HB" | is.na(techniqueEchantillonnage_tran)) %>%
+  group_by(idSINPRegroupement_tran) %>%
+  mutate(min_des_roles =  min(profondeurMin_reel, na.rm = TRUE),
+         max_des_roles = max(profondeurMax_reel, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(prof_NEW_reel = rowMeans(select(., ends_with("roles")), na.rm = TRUE)) 
+
+# --- 4 on recree le dataset des données sans profondeur
+df.prof.tmp <- bind_rows(df.noprof.CN, df.noprof.HB.H, df.noprof.HB.B) %>%
+  select(idSINPRegroupement_tran, prof_NEW_reel) %>%
+  distinct() %>%
+  rename(prof_cible_reel.v2 = prof_NEW_reel)
+
+df.noprof.OK <- df.noprof %>%
+  left_join(df.prof.tmp) 
+  
+df.noprof.OK.pull <- df.noprof.OK %>% distinct(idSINPRegroupement_tran) %>% pull()
+
+# --- 5 on cree le jeu final
+
+TC.prof.tmp <- TC.v3 %>%
+  mutate(prof_cible_reel.v2 = prof_cible_reel) %>%
+  mutate(prof_cible_corr.v2 = prof_cible_corr) %>%
+  filter(!idSINPRegroupement_tran %in% df.noprof.OK.pull) %>%
+  bind_rows(df.noprof.OK) %>%
+  # on calcule la profondeur réalisée corrigée : prof_cible_reel - hauteur d'eau du transect
+  mutate(prof_real_corr = prof_cible_reel.v2 - hauteurEau_transect) %>%
+    # on rajoute la strate (prof_cible_corr) en fonction de la profondeur réalisée corrigée
+  mutate(prof_cible_corr.v2 = case_when(between(prof_real_corr, 1,5.9) ~ 3,
+                                between(prof_real_corr, 6.0,10.9) ~ 8,
+                                between(prof_real_corr, 11.0,15.9) ~ 13,
+                                between(prof_real_corr, 16.0,20.9) ~ 18,
+                                between(prof_real_corr, 21.0,25.9) ~ 23,
+                                between(prof_real_corr, 26.0,30.9) ~ 28)) %>%
+  # on calcule la profondeur réalisée corrigée : prof_cible_reel - hauteur d'eau niv immersion
+   mutate(prof_real_corr.imm = prof_cible_reel.v2 - hauteur_eau) %>%
+    # on rajoute la strate (prof_cible_corr) en fonction de la profondeur réalisée corrigée
+  mutate(prof_cible_corr.v2.imm = case_when(between(prof_real_corr.imm, 1,5.9) ~ 3,
+                                between(prof_real_corr.imm, 6.0,10.9) ~ 8,
+                                between(prof_real_corr.imm, 11.0,15.9) ~ 13,
+                                between(prof_real_corr.imm, 16.0,20.9) ~ 18,
+                                between(prof_real_corr.imm, 21.0,25.9) ~ 23,
+                                between(prof_real_corr.imm, 26.0,30.9) ~ 28)) 
+
+dim(TC.v3)
+dim(TC.prof.tmp)
+
+```
+
+### Résumé
+
+```{r}
+TC.prof.tmp %>%
+  distinct(year, area, 
+           idSINPRegroupement_tran, prof_cible_corr, prof_cible_corr.v2) %>%
+  mutate(comp = case_when(is.na(prof_cible_corr) & !is.na(prof_cible_corr.v2) ~ "rajouté",
+                          is.na(prof_cible_corr) & is.na(prof_cible_corr.v2) ~ "toujours NA",
+                          !is.na(prof_cible_corr) & !is.na(prof_cible_corr.v2) ~ "déja là")) %>%
+  group_by(year, area, comp) %>%
+  tally() %>% spread(comp, n) %>% kable(caption="TC: resume avec HE du transect")
+
+
+TC.prof.tmp %>%
+  distinct(year, area, 
+           idSINPRegroupement_tran, prof_cible_corr, prof_cible_corr.v2.imm) %>%
+  mutate(comp = case_when(is.na(prof_cible_corr) & !is.na(prof_cible_corr.v2.imm) ~ "rajouté",
+                          is.na(prof_cible_corr) & is.na(prof_cible_corr.v2.imm) ~ "toujours NA",
+                          !is.na(prof_cible_corr) & !is.na(prof_cible_corr.v2.imm) ~ "déja là")) %>%
+  group_by(year, area, comp) %>%
+  tally() %>% spread(comp, n) %>% kable(caption="TC: resume avec HE de l'immersion")
+
+unique(TC.prof.tmp$prof_cible_corr.v2)
+
+```
+
+On compare les résultats des strates quand il y a les 2 hauteurs d'eau (immersion et transect)
+```{r}
+
+tmp <- TC.prof.tmp %>%
+  mutate(comp=case_when(prof_cible_corr.v2==prof_cible_corr.v2.imm ~ "pareil",
+                        prof_cible_corr.v2!=prof_cible_corr.v2.imm ~ "pas_pareil")) %>%
+  filter(comp=="pas_pareil") %>%
+  pull(idSINPRegroupement_tran)
+
+tmp.imm <- TC.prof.tmp %>% filter(idSINPRegroupement_tran %in% tmp) %>% distinct(idSINPRegroupement_imm) %>% pull(idSINPRegroupement_imm)
+
+TC.prof.tmp %>%
+  filter(idSINPRegroupement_imm %in% tmp.imm) %>%
+  distinct(idSINPRegroupement_imm, code_site, year, area, Date,
+           idSINPRegroupement_tran, no_transect, prof_cible_reel.v2, prof_cible_reel,
+           prof_cible_corr, prof_cible_corr.v2, prof_cible_corr.v2.imm, 
+           hauteur_eau, hauteurEau_transect) %>%
+  arrange(idSINPRegroupement_imm, no_transect) %>%
+  select(-idSINPRegroupement_imm, -idSINPRegroupement_tran) %>%
+  select(area, code_site, Date, year,no_transect, 
+         hauteur_eau, hauteurEau_transect, 
+         prof_cible_reel.v2, prof_cible_corr, prof_cible_corr.v2,
+         prof_cible_corr.v2.imm) %>%
+  unite(new, c(area, Date,code_site, no_transect))%>%
+  rename(HE_im=hauteur_eau) %>%
+  rename(HE_tr=hauteurEau_transect) %>%
+  kable(caption="diff_prof")
+```
+
+Il y a qq transects où les prof cible corr calculées à partir de la hauteur Eau du transect et de l'immersion ne correspondaient pas (voir tableau ci dessous).
+
+On prend les prof calculées avec hauteur eau transect à part pour les transects 2020 Corbeau t5 à t8 où on prend les données avec HE immersion (car matche les différentes strates 18-13-8-3). 
+
+Bono et Tregastel sont les sites herbier où il manque des données pour les strates, du coup je vais mettre 3m vu qu'il n'y a que cette profondeur:
+
+```{r}
+TC.prof.tmp %>%
+  filter(area=="Tregor" | code_site=="BLOS") %>%
+  distinct(idSINPRegroupement_tran, prof_cible_corr.v2.imm, site) %>%
+  group_by(prof_cible_corr.v2.imm, site) %>%
+  tally() %>%
+  spread(prof_cible_corr.v2.imm, n) %>% kable()
+```
+
+On applique les modifs ci-dessus
+
+```{r}
+TC.prof.tmp2 <- TC.prof.tmp %>%
+  mutate(prof_cible_corr.v3 = case_when(code_site=="CORB" &
+                                          Date=="08/10/2020" ~ prof_cible_corr.v2.imm,
+                                        site=="Mouillage de Tregastel (herbier)" &
+                                          is.na(prof_cible_corr.v2) ~ 3,
+                                        site=="Ile de Bono Sud (herbier)" &
+                                          is.na(prof_cible_corr.v2) ~ 3,
+                                        site=="Port Bloscon" & 
+                                          is.na(prof_cible_corr.v2) ~ 3,
+                                        TRUE ~ prof_cible_corr.v2)) %>%
+  select(-prof_cible_corr.v2)
+
+```
+
+
+```{r}
+
+TC.prof.tmp2 %>%
+  filter(area=="Tregor" | code_site=="BLOS") %>%
+  distinct(idSINPRegroupement_tran, prof_cible_corr.v3, site) %>%
+  group_by(prof_cible_corr.v3, site) %>%
+  tally() %>%
+  spread(prof_cible_corr.v3, n) %>% kable()
+```
+
+# Visi
+
+--> visi - abondance : visi biaisée en fct de certaines esp. 
+identifier les espèces qui répondent le plus à la visi et celles qui repondent plus à la visi qu'aux pressions envi 
+
+# Habitat
+
+# Export dataset
+
+```{r}
+TR.modif <- TR.prof.tmp3
+TC.modif <- TC.prof.tmp2
+
+TR.modif <- TR.modif %>%
+  rename(prof_cible_corr.FINAL = prof_cible_corr.v3) %>%
+  select(-prof_cible_corr, -prof_cible_reel,
+         -prof_cible_reel, -prof_cible_reel.v2, 
+         -prof_real_corr) 
+
+TC.modif <- TC.modif %>%
+  rename(prof_cible_corr.FINAL = prof_cible_corr.v3) %>%
+  select(-prof_cible_corr, -prof_cible_reel,
+         -prof_cible_reel, -prof_cible_reel.v2, 
+         -prof_real_corr) 
+```
+
+```{r}
+save(TR.modif, file = "./Data/TR_modified.RData")
+save(TC.modif, file = "./Data/TC_modified.RData")
+```
+
+
+# Sessioninfo
+
+```{r}
+sessionInfo()
+```
+
+

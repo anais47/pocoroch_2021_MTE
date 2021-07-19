@@ -1,0 +1,456 @@
+---
+title: "Pocoroch : Resume des 2 bases ACCESS"
+author: "Anaïs Rey"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  rmdformats::readthedown:
+    code_folding: hide
+    gallery: yes
+    highlight: tango
+    lightbox: yes
+    thumbnails: no
+    toc_depth: 6
+    number_sections: true
+    #css: styles.css # if we want to save the styles in a css and call it inside of having it inside the case as here.
+    #https://github.com/juba/rmdformats/blob/master/inst/templates/readthedown/readthedown.css
+    #https://stackoverflow.com/questions/42935320/how-to-change-the-color-theme-on-rmdformats-readthedown
+editor_options:
+  chunk_output_type: console
+---
+
+<script>
+   $(document).ready(function() {
+     $head = $('#header');
+     $head.prepend('<img src=\"logo_rmd_pocoroch.png\" style=\"float: right;width: 150px;\"/>')
+   });
+</script>
+
+<style>
+#sidebar {
+  background: seagreen;
+}
+
+#sidebar h2{
+    z-index:200;
+    background-color:#7fcdbb;
+    text-align:center;
+    padding:0.809em;
+    display:block;
+    color:#fcfcfc;
+    font-size: 100%;
+    margin-top: 0px;
+    margin-bottom:0.809em;
+}
+
+#postamble {
+  background:steelblue;
+  border-top:solid 10px #003366;
+}
+
+.title {
+  text-align: center;
+}
+
+.subtitle {
+  color: #edf8b1;
+}
+
+h1, h2, h3, h4, h5, h6, legend {
+  color: #003366;
+  font-weight:bold;
+}
+
+
+#content h1 {
+    background-color: white;
+    color: #8c510a;
+}
+
+#content h2 {
+    color: #bf812d;
+}
+
+#content h3 {
+    color: #dfc27d;
+}
+
+</style>
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE, cache = FALSE)
+```
+
+**But du script: **
+
+Faire un résumé des bases Transect et Timecount les plus actuelles modifiées par le script 01_modify_datasets_TR_TC.Rmd
+
+# Load packages 
+
+```{r packages}
+library(dplyr)
+library(rlist)
+library(tidyr)
+library(stringr)
+library(knitr)
+library(ggplot2)
+library(forcats)
+```
+
+# Set working directory
+
+```{r}
+#setwd("C:/Users/arey/Documents/01_Patrinat/02_Pocoroch_projet/01_Analyses/02_Analyses_rapportMTE_Sept2021/")
+```
+
+# Import data
+
+```{r}
+load(file="./Data/TR_modified.RData")
+load(file="./Data/TC_modified.RData")
+
+# rename
+
+TR <- TR.modif
+TC <- TC.modif
+```
+
+
+# Résumé global
+
+```{r eval=FALSE}
+TC %>%
+  distinct(idSINPRegroupement_tran, year, area) %>%
+  group_by(year, area) %>%
+  tally() %>%
+  spread(year, n, fill=0) %>%
+  kable(caption = "nb of transect for Timecount")
+
+TR  %>%
+  distinct(idSINPRegroupement_tran, year, area) %>%
+  group_by(year, area) %>%
+  tally() %>%
+  spread(year, n, fill=0) %>%
+  kable(caption = "nb of transect for Transect")
+```
+
+
+```{r}
+tmp1 <- TC %>%
+  distinct(idSINPRegroupement_tran, year, area, method) %>%
+  group_by(year, area, method) %>%
+  tally() %>%
+  unite(new, c(year, method))
+
+tmp2 <- TR  %>%
+  distinct(idSINPRegroupement_tran, year, area, method) %>%
+  group_by(year, area, method) %>%
+  tally() %>%
+  unite(new, c(year, method))
+
+bind_rows(tmp1, tmp2) %>%
+  spread(new, n)%>%
+  kable(caption = "nb of transects")
+```
+
+**Chiffre clés**
+
+```{r}
+TC.key.nb.ech <- TC %>% 
+  distinct(year, area, 
+           idSINPRegroupement_imm, idSINPRegroupement_tran) %>%
+  group_by(year, area) %>%
+  summarise(imm=n_distinct(idSINPRegroupement_imm),
+            tran=n_distinct(idSINPRegroupement_tran)) %>%
+  mutate(method="Temps")
+
+
+TC.key.nb.sp <- TC %>% 
+  group_by(year, area) %>%
+  filter(nomCite!="No_species") %>%
+  summarise(sp=n_distinct(nomCite), 
+            ab=sum(abondance)) # diff avec rapport d'Anna car j'ai enlevé observations hors transects
+
+full_join(TC.key.nb.ech, TC.key.nb.sp)
+
+TR.key.nb.ech <- TR %>% 
+  distinct(year, area, 
+           idSINPRegroupement_imm, idSINPRegroupement_tran) %>%
+  group_by(year, area)  %>%
+  summarise(imm=n_distinct(idSINPRegroupement_imm),
+            tran=n_distinct(idSINPRegroupement_tran)) %>%
+  mutate(method="Transect")
+
+TR.key.nb.sp <- TR %>% 
+  group_by(year, area) %>%
+  filter(nomCite!="No_species") %>%
+  summarise(sp=n_distinct(nomCite), 
+            ab=sum(abondance)) # diff avec rapport d'Anna car j'ai enlevé observations hors transects
+
+full_join(TR.key.nb.ech, TR.key.nb.sp)
+```
+
+# Map 
+
+TODO!
+
+# Echantillon en commun
+
+```{r fig.height = 8, fig.width = 10}
+sample.tr <- TR  %>% distinct(area, year, code_site, saison) %>% unite(new, c(area, year, code_site, saison)) %>% pull(new)
+
+sample.tc <- TC %>% distinct(area, year,code_site, saison) %>% unite(new, c(area,year, code_site, saison)) %>% pull(new)
+
+sample.shared <- intersect(sample.tc, sample.tr) %>% as.data.frame() %>% mutate(shared = "TR+TC") %>% rename(new.name=".")
+
+
+tmp.TR <- TR  %>%
+  distinct(idSINPRegroupement_tran, area, year, code_site, saison,  prof_cible_corr.FINAL, method) %>%
+  unite(new.id.tran, c(idSINPRegroupement_tran,method), remove=F) %>%
+  select(-idSINPRegroupement_tran) 
+
+tmp.TC <- TC %>%
+  distinct(idSINPRegroupement_tran, area, year, code_site, saison, prof_cible_corr.FINAL, method) %>%
+  unite(new.id.tran, c(idSINPRegroupement_tran,method), remove=F) %>%
+  select(-idSINPRegroupement_tran) 
+
+test2 <- bind_rows(tmp.TR, tmp.TC) %>%
+  select(-prof_cible_corr.FINAL) %>%
+  distinct() %>%
+  filter(area=="Baie de Morlaix" | area == "Tregor" |
+         area == "Mer d Iroise" | area == "Cote d Emeraude") %>%
+  unite(new.name, c(area, year,code_site, saison), remove=F) %>%
+  left_join(sample.shared) %>%
+  mutate(shared.2 = case_when(is.na(shared) ~ method,
+                              !is.na(shared) ~ shared)) %>%
+  unite(new.2, c(year, saison), remove=F)
+
+ggplot(test2, aes(x = new.2, y = code_site)) + 
+      geom_point(aes(size=5, fill = shared.2), alpha = 0.75, shape = 21) +
+  coord_flip() +
+  facet_wrap(vars(area), scales="free")+
+  xlab("")+ylab("")+
+  theme_bw()+
+  theme(legend.key=element_blank(), 
+       axis.text.x = element_text(colour = "black", 
+                                  size = 8, 
+                                  #vjust = 0.3, 
+                                  #hjust = 1, 
+                                  angle=45), 
+       axis.text.y = element_text(colour = "black", 
+                                  size = 8), 
+       legend.text = element_text(size = 10, 
+                                  colour ="black"), 
+       legend.title = element_text(size = 9), 
+       legend.position = "bottom")+
+  scale_fill_manual(values = c( "lightgreen", "skyblue", "darkorange")) +
+  ggtitle("sites en commun et uniques TR et TC")
+
+test3 <- bind_rows(tmp.TR, tmp.TC) %>%
+  filter(area=="Baie de Morlaix" | area == "Tregor" |
+         area == "Mer d Iroise" | area == "Cote d Emeraude") %>%
+  unite(new.name, c(area, year,code_site, saison), remove=F) %>%
+  left_join(sample.shared) %>%
+  filter(shared == "TR+TC") %>%
+  unite(new.2, c(code_site, year, saison), remove=F) %>%
+  unite(new.3, c(prof_cible_corr.FINAL, method), remove=F) %>%
+  mutate(new.3 = fct_reorder(new.3, prof_cible_corr.FINAL)) %>%
+  mutate(prof_cible_corr.FINAL = as.factor(prof_cible_corr.FINAL)) %>%
+  group_by(new.2, new.3, area, prof_cible_corr.FINAL, method) %>%
+  tally() 
+ 
+ggplot(test3 , aes(x = new.2, y = new.3)) + 
+      geom_point(aes(size=n, fill = prof_cible_corr.FINAL), alpha = 0.75, shape = 21) +
+  coord_flip() +
+  facet_wrap(vars(area), scales="free")+
+  xlab("")+ylab("")+
+  theme_bw()+
+  theme(legend.key=element_blank(), 
+       axis.text.x = element_text(colour = "black", 
+                                  size = 8, 
+                                  vjust = 0.3, 
+                                  hjust = 1), 
+       axis.text.y = element_text(colour = "black", 
+                                  size = 8), 
+       legend.text = element_text(size = 10, 
+                                  colour ="black"), 
+       legend.title = element_text(size = 11), 
+       legend.position = "bottom") +
+  ggtitle("sites en commun TR et TC en fct des strates")
+
+test4 <- tmp.TC %>%
+  unite(new.name, c(area, year,code_site, saison), remove=F) %>%
+  unite(new.2, c(code_site, year, saison), remove=F) %>%
+  unite(new.3, c(prof_cible_corr.FINAL, method), remove=F) %>%
+  mutate(new.3 = fct_reorder(new.3, prof_cible_corr.FINAL)) %>%
+  mutate(prof_cible_corr.FINAL = as.factor(prof_cible_corr.FINAL)) %>%
+  group_by(new.2, new.3, area, prof_cible_corr.FINAL, method) %>%
+  tally() 
+ 
+ggplot(test4, aes(x = new.2, y = new.3)) + 
+      geom_point(aes(size=n, fill = prof_cible_corr.FINAL), alpha = 0.75, shape = 21) +
+  coord_flip() +
+  facet_wrap(vars(area), scales="free")+
+  xlab("")+ylab("")+
+  theme_bw()+
+  theme(legend.key=element_blank(), 
+       axis.text.x = element_text(colour = "black", 
+                                  size = 8, 
+                                  vjust = 0.3, 
+                                  hjust = 1), 
+       axis.text.y = element_text(colour = "black", 
+                                  size = 8), 
+       legend.text = element_text(size = 10, 
+                                  colour ="black"), 
+       legend.title = element_text(size = 11), 
+       legend.position = "bottom") +
+  ggtitle("sites TC en fct des strates")
+
+test5 <- tmp.TR %>%
+  filter(area=="Baie de Morlaix" | area == "Tregor" |
+         area == "Mer d Iroise" | area == "Cote d Emeraude") %>%
+  unite(new.name, c(area, year,code_site, saison), remove=F) %>%
+  unite(new.2, c(code_site, year, saison), remove=F) %>%
+  unite(new.3, c(prof_cible_corr.FINAL, method), remove=F) %>%
+  mutate(new.3 = fct_reorder(new.3, prof_cible_corr.FINAL)) %>%
+  mutate(prof_cible_corr.FINAL = as.factor(prof_cible_corr.FINAL)) %>%
+  group_by(new.2, new.3, area, prof_cible_corr.FINAL, method) %>%
+  tally() 
+ 
+ggplot(test5, aes(x = new.2, y = new.3)) + 
+      geom_point(aes(size=n, fill = prof_cible_corr.FINAL), alpha = 0.75, shape = 21) +
+  coord_flip() +
+  facet_wrap(vars(area), scales="free")+
+  xlab("")+ylab("")+
+  theme_bw()+
+  theme(legend.key=element_blank(), 
+       axis.text.x = element_text(colour = "black", 
+                                  size = 8, 
+                                  vjust = 0.3, 
+                                  hjust = 1), 
+       axis.text.y = element_text(colour = "black", 
+                                  size = 8), 
+       legend.text = element_text(size = 10, 
+                                  colour ="black"), 
+       legend.title = element_text(size = 11), 
+       legend.position = "bottom")+
+  ggtitle("sites TR en fct des strates")
+
+```
+
+
+
+# Résumé par zone 
+```{r}
+summary.prof <- function(base, zone){
+  
+  zone <- enquo(zone)
+  
+  tmp <- base %>%
+    dplyr::filter(area==UQ(zone)) %>%
+    distinct(idSINPRegroupement_tran,
+           prof_cible_corr.FINAL, 
+           site, area, year, month, day, no_transect, saison) %>%
+    group_by(area, year, site, saison,
+             prof_cible_corr.FINAL) %>%
+    tally() %>%
+    spread(prof_cible_corr.FINAL , n) %>%
+    arrange(year, site, saison)
+  
+  return(tmp)
+}
+```
+
+
+## Baie de Morlaix
+
+```{r}
+summary.prof(base=TR, zone="Baie de Morlaix") %>% kable(caption="transect")
+summary.prof(base=TC, zone="Baie de Morlaix") %>% kable(caption="timecount")
+```
+
+
+## Mer d'Iroise
+
+```{r}
+summary.prof(base=TR , zone="Mer d Iroise") %>% kable(caption="transect")
+summary.prof(base=TC, zone="Mer d Iroise") %>% kable(caption="timecount")
+```
+
+
+## Tregor
+
+```{r}
+summary.prof(base=TR , zone="Tregor") %>% kable(caption="transect")
+summary.prof(base=TC, zone="Tregor") %>% kable(caption="timecount")
+```
+
+
+## Cote d'Emeraude
+
+```{r}
+summary.prof(base=TR, zone="Cote d Emeraude") %>% kable(caption="transect")
+summary.prof(base=TC, zone="Cote d Emeraude") %>% kable(caption="timecount")
+  
+```
+
+
+## Plateau du large
+
+```{r}
+summary.prof(base=TR , zone="Plateau du large") %>% kable(caption="transect")
+```
+
+## Large Quiberon
+
+```{r}
+summary.prof(base=TR , zone="Large Quiberon") %>% kable(caption="transect")
+```
+
+## Ile d'Yeu
+
+```{r}
+summary.prof(base=TR , zone="Ile d'yeu") %>% kable(caption="transect")
+```
+
+## Noirmoutiers
+
+```{r}
+summary.prof(base=TR, zone="Noirmoutiers") %>% kable(caption="transect") 
+```
+
+# autres 
+
+```{r}
+unique(TR$no_section)
+TR %>% filter(no_section=="s1" | no_section=="s2" | no_section=="s3") %>%
+  distinct(idSINPRegroupement_tran, year, area) %>%
+  group_by(year, area) %>%
+  tally() %>% spread(year, n)
+```
+
+```{r}
+TR %>% 
+  distinct(area, site, saison, year, Date) %>% 
+  group_by(area, site, saison, year) %>%
+  tally() %>%
+  #unite(site_sea, c(site, saison)) %>%
+  spread(saison, n) %>%
+  arrange(area, year) %>%
+  View()
+  
+TC %>% 
+  distinct(area, site, saison, year, Date) %>% 
+  group_by(area, site, saison, year) %>%
+  tally() %>%
+  #unite(site_sea, c(site, saison)) %>%
+  spread(saison, n) %>%
+  arrange(area, year) %>%
+  View()
+    
+```
+
+# Sessioninfo
+
+```{r}
+sessionInfo()
+```

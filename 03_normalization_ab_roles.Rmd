@@ -1,0 +1,1356 @@
+---
+title: "Pocoroch : Normalisation	des	abondances"
+author: "Anaïs Rey"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  rmdformats::readthedown:
+    code_folding: hide
+    gallery: yes
+    highlight: tango
+    lightbox: yes
+    thumbnails: no
+    toc_depth: 6
+    number_sections: true
+    #css: styles.css # if we want to save the styles in a css and call it inside of having it inside the case as here.
+    #https://github.com/juba/rmdformats/blob/master/inst/templates/readthedown/readthedown.css
+    #https://stackoverflow.com/questions/42935320/how-to-change-the-color-theme-on-rmdformats-readthedown
+editor_options:
+  chunk_output_type: console
+---
+
+<script>
+   $(document).ready(function() {
+     $head = $('#header');
+     $head.prepend('<img src=\"logo_rmd_pocoroch.png\" style=\"float: right;width: 150px;\"/>')
+   });
+</script>
+
+<style>
+#sidebar {
+  background: seagreen;
+}
+
+#sidebar h2{
+    z-index:200;
+    background-color:#7fcdbb;
+    text-align:center;
+    padding:0.809em;
+    display:block;
+    color:#fcfcfc;
+    font-size: 100%;
+    margin-top: 0px;
+    margin-bottom:0.809em;
+}
+
+#postamble {
+  background:steelblue;
+  border-top:solid 10px #003366;
+}
+
+.title {
+  text-align: center;
+}
+
+.subtitle {
+  color: #edf8b1;
+}
+
+h1, h2, h3, h4, h5, h6, legend {
+  color: #003366;
+  font-weight:bold;
+}
+
+
+#content h1 {
+    background-color: white;
+    color: #8c510a;
+}
+
+#content h2 {
+    color: #bf812d;
+}
+
+#content h3 {
+    color: #dfc27d;
+}
+
+</style>
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE, cache = TRUE)
+```
+
+**But du script: **
+
+Préparer les jeux de données pour "aggréger" les données des rôles au niveau du transect :
+
+  + **Pour le jeu Transect :** 
+
+--- HB : Normalisation	des	abondances	entre	le	bas	et	le	haut	des	transects	en	fonction	de	la	surface échantillonnée (basée sur protocole de Stéphanie d'Agata --> code repris du script 1_Associate_H_B.R et 1_Associate_H_B_size_species.R ici C:\Users\arey\Documents\01_Patrinat\02_Pocoroch_projet\01_Analyses\00_Travail&Code_Stephanie\Repo_Github_Pocoroch\2020_Pocoroch)
+
+--- CC : On garde que C4 et on normalise C4 en C2
+
+  + **Pour le jeu Time-Count :**
+
+--- HB : On prends le maximum des 2 observateurs
+
+--- CC : On garde que C4
+
+**Fichier de sortie**
+
+  + **Pour le jeu Transect :** 
+  
+--- Abondance normalisées par taxon au niveau du transect
+
+--- Abondance normalisées par taxon et classe de taille (P/M/G) au niveau du transect
+
+--- Biomasse normalisées par taxon au niveau du transect
+
+--- Densité par taxon au niveau du transect
+
+--- Densité par taxon et classe de taille (P/M/G) au niveau du transect
+
+--- Abondance normalisées par taxon au niveau du tronçon
+
+  + **Pour le jeu Temps :** 
+  
+--- Abondance par taxon au niveau du transect
+
+--- Abondance par taxon et classe de taille au niveau du transect
+
+# Load packages 
+
+```{r packages}
+library(dplyr) # for filter(), select(), etc.
+library(tidyr)
+library(stringr)
+library(knitr)
+library(rlist) # for list.rbind()
+library(stringr) # for str_sub()
+library(vegan) # for rarefy
+library(doBy) # for which.minn()
+library(tibble)
+library(data.table) # for rbindlist()
+```
+
+# Set working directory
+
+```{r}
+#setwd("C:/Users/arey/Documents/01_Patrinat/02_Pocoroch_projet/01_Analyses/02_Analyses_rapportMTE_Sept2021/")
+```
+
+
+# Import DATA
+
+```{r}
+# DATA.sp from UVC sampling
+load(file="./Data/TR_modified.RData")
+load(file="./Data/TC_modified.RData")
+
+# rename
+TR <- TR.modif
+TC <- TC.modif
+
+# Trait for maximum length and biomass computation
+traits.bdd <- read.csv2("C:/Users/arey/Documents/01_Patrinat/02_Pocoroch_projet/01_Analyses/02_Analyses_rapportMTE_Sept2021/Traits/BDD_MarieCaroline/BDD_Poissons côtiers_MCH.csv")
+
+taxa.uvc <- unique(c(TR$nomCite, TC$nomCite)) %>%
+  as.data.frame() %>%
+  rename(nomCite=".") %>%
+  mutate(ScientificName_accepted=nomCite) %>%
+  mutate(ScientificName_accepted = gsub(" spp$", "", ScientificName_accepted),
+         ScientificName_accepted = gsub(" fl$", "", ScientificName_accepted))
+
+traits.taxa.uvc <- taxa.uvc %>%
+  left_join(traits.bdd) %>%
+  select(nomCite, Max_length, a, b) %>%
+  mutate(Max_length = gsub("," , "\\.", Max_length),
+         a = gsub("," , "\\.", a),
+         b = gsub("," , "\\.", b)) %>%
+  mutate(Max_length = as.numeric(Max_length),
+         a = as.numeric(a),
+         b = as.numeric(b)) 
+
+# Modif pour compléter les données de a et b manquantes dans la base
+# --récupérer depuis le fichier crée par Anna Resolution problème biomasse
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Thorogobius ephippiatus",] <- 0.00589 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Thorogobius ephippiatus",] <- 3.10 # b
+
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Tripterygion delaisi",] <- 0.00550 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Tripterygion delaisi",] <- 3.08 # b
+
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Gobiusculus flavescens",] <- 0.00589 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Gobiusculus flavescens",] <- 3.10 # b
+
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Parablennius pilicornis",] <- 0.01000 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Parablennius pilicornis",] <- 3.01 # b
+
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Lepadogaster candolii",] <- 0.00550 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Lepadogaster candolii",] <- 3.11 # b
+
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Lepadogaster spp",] <- 0.02307 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Lepadogaster spp",] <- 3.000 # b
+
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Pomatoschistus spp",] <- 0.00760 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Pomatoschistus spp",] <- 3.140 # b
+
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Mugilidae fl",] <- 0.01202 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Mugilidae fl",] <- 2.97 # b
+
+
+# --récupérer en plus du fichier d'Anna
+
+#https://www.fishbase.se/popdyn/LWRelationshipList.php?ID=854&GenusName=Scyliorhinus&SpeciesName=stellaris&fc=10 --> doubtful d'après fishbase?
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Scyliorhinus stellaris",] <- 0.00200 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Scyliorhinus stellaris",] <- 3.167 # b
+
+# basé sur G.vulgaris fishbase
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Gaidropsarus spp",] <- 0.0081 # a 
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Gaidropsarus spp",] <- 2.90 # b
+
+# basé sur Scomber scombrus fishbase
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Scomber spp",] <- 0.0035 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Scomber spp",] <- 3.25 # b
+
+# basé sur Syngnathus acus fishbase
+traits.taxa.uvc[3][traits.taxa.uvc$nomCite=="Syngnathidae fl",] <- 0.0002 # a
+traits.taxa.uvc[4][traits.taxa.uvc$nomCite=="Syngnathidae fl",] <- 3.21 # b
+
+# Modif pour compléter les données taille max
+traits.taxa.uvc[2][traits.taxa.uvc$nomCite=="Scomber spp",] <- 50 # basé sur Scomber scomber
+traits.taxa.uvc[2][traits.taxa.uvc$nomCite=="Syngnathidae fl",] <- 46 # basé sur S.acus
+
+traits.taxa.uvc %>% filter(is.na(a))
+traits.taxa.uvc %>% filter(is.na(Max_length))
+```
+
+
+# Time-Count
+## Supression rôles NA, role singletons et incorrects
+
+```{r}
+TC %>%
+  distinct(idSINPRegroupement_tran, idSINPRegroupement_role,
+           role, techniqueEchantillonnage_tran, ) %>%
+  group_by(role, techniqueEchantillonnage_tran) %>%
+  tally() %>%
+  spread(role, n, fill=0) %>% 
+  kable()
+
+TC.tmp <- TC %>% 
+  # on supprime les cas où le rôle n'est pas rentré (que pour 2018 normalement)
+  filter(!is.na(role)) %>%
+  # on enlève les combinaisons de rôle qui n'ont pas au moins H et B ou C et N
+  # ! vérifier avec Pierre 
+  filter(techniqueEchantillonnage_tran!="NN" & 
+         techniqueEchantillonnage_tran!="HBCBC" &
+         #techniqueEchantillonnage_tran!="BNC" &
+         #techniqueEchantillonnage_tran!="CNB" &
+         #techniqueEchantillonnage_tran!="CNH" &
+         techniqueEchantillonnage_tran!="HBCC") %>%
+  filter(role =="C" | role =="N" | role == "H" | role == "B" ) %>%
+  # on supprime les rôles non essentiels pour BNC, CNB et CNH
+  mutate(to_rm = case_when(techniqueEchantillonnage_tran=="BNC" & role == "B" ~ "to.rm",
+                            techniqueEchantillonnage_tran=="CNB" & role == "B" ~ "to.rm",
+                            techniqueEchantillonnage_tran=="CNH" & role == "H" ~ "to.rm",
+                           TRUE ~ "to.keep")) %>%
+  filter(to_rm == "to.keep") %>%
+  # on simplifie la tech d'échantillonnage
+  mutate(tech.tran.2 = case_when(str_detect(techniqueEchantillonnage_tran, "HB|HHB") ~ "HB",
+                                 str_detect(techniqueEchantillonnage_tran,
+                                            "CC|CNN|NBCC|CN|CNBC|BNC") ~ "CC")) %>%
+  # on sélectionne aléatoirement un plongeur sur 2 
+  # qd il y a 3 plongeurs et que 2 ont fait le même rôle
+  distinct(tech.tran.2,
+           idSINPRegroupement_tran, role, idSINPRegroupement_role) %>%
+  group_by(idSINPRegroupement_tran, role) %>%
+  sample_n(1) %>%
+  ungroup() %>%
+  # on recreé le DATA.spset
+  left_join(TC) %>%
+  select(-techniqueEchantillonnage_tran)
+
+# on elnlève les transects avec un seul rôle
+TC.single <- TC.tmp %>%
+  distinct(idSINPRegroupement_tran, idSINPRegroupement_role) %>%
+  group_by(idSINPRegroupement_tran) %>%
+  tally() %>%
+  filter(n<2) %>%
+  pull(idSINPRegroupement_tran)
+
+TC.tmp.nosingle <- TC.tmp %>% 
+  filter(!idSINPRegroupement_tran %in% TC.single)
+
+TC.tmp.nosingle %>%
+  distinct(idSINPRegroupement_tran, idSINPRegroupement_role,
+           role, tech.tran.2) %>%
+  group_by(role, tech.tran.2) %>%
+  tally() %>%
+  spread(role, n, fill=0)  %>% 
+  kable()
+
+# nb de transect supprimés
+TC %>% 
+  distinct(year, area, idSINPRegroupement_tran) %>%
+  group_by(year, area) %>%
+  tally() %>% spread(year, n) %>%
+  kable(caption = "Temps : nb transect RAW")
+
+TC.tmp.nosingle %>% 
+  distinct(year, area, idSINPRegroupement_tran) %>%
+  group_by(year, area) %>%
+  tally() %>% spread(year, n)%>%
+  kable(caption = "Temps : nb transect après suppresion de rôles à problème")
+```
+
+## Aggregation niveau transect
+
+```{r}
+TC.agg <- TC.tmp.nosingle %>%
+  # pour la tech d'ech CC on garde que le role N(=C4)
+  mutate(to_keep = case_when(tech.tran.2=="CC" & role =="N" ~ "to.keep",
+                             tech.tran.2=="CC" & role =="C" ~ "to.rm",
+                             tech.tran.2=="HB" ~ "to.keep")) %>%
+  filter(to_keep == "to.keep") %>%
+  # on somme les abondance d'une même esp_classe de taille au niveau du rôle en cas
+  group_by(idSINPRegroupement_role, nomCite, classe_taille) %>%
+  mutate(abondance.sp.size = sum(abondance)) %>%
+  # pour la tech d'éch HB on garde le maximum d'un des 2 observateurs:
+  # -- niveau esp_classe de taille 
+  group_by(tech.tran.2, idSINPRegroupement_tran, nomCite, classe_taille) %>%
+  mutate(max.ab.sp.size = max(abondance.sp.size))  %>%
+  # -- niveau esp
+  group_by(idSINPRegroupement_role, nomCite) %>%
+  mutate(abondance.sp = sum(abondance)) %>%
+  group_by(tech.tran.2, idSINPRegroupement_tran, nomCite) %>%
+  mutate(max.ab.sp = max(abondance.sp)) %>%
+  ungroup()
+
+TC.agg.sp <- TC.agg %>%
+  select(# données de l'immersion
+    idSINPRegroupement_imm, 
+         area, correct_site_name, habitat_type, exploit_LH, cote_large, 
+         code_site, zone, longitude_DD, latitude_DD, method, 
+         prof_cible_corr.v2.imm,  
+         Date, day, month, year, saison, session, 
+         heure_immersion, no_immersion, no_palanquee, institut, 
+         palanquee, plongeur_1, plongeur_2, plongeur_3, site, hauteur_eau, materiel_respiratoire, 
+    # données du transect
+    idSINPRegroupement_tran, 
+         tech.tran.2, type_transect, no_transect, 
+         tempsDebut, tempsFin, hauteurEau_transect, prof_cible_corr.FINAL,
+    # données des observations au niveau du transect
+    nomCite, max.ab.sp) %>%
+  distinct()
+
+
+TC.agg.sp.size <- TC.agg %>%
+  select(# données de l'immersion
+    idSINPRegroupement_imm, 
+         area, correct_site_name, habitat_type, exploit_LH, cote_large, 
+         code_site, zone, longitude_DD, latitude_DD, method, 
+         prof_cible_corr.v2.imm,  
+         Date, day, month, year, saison, session, 
+         heure_immersion, no_immersion, no_palanquee, institut, 
+         palanquee, plongeur_1, plongeur_2, plongeur_3, site, hauteur_eau, materiel_respiratoire, 
+    # données du transect
+    idSINPRegroupement_tran, 
+         tech.tran.2, type_transect, no_transect, 
+         tempsDebut, tempsFin, hauteurEau_transect, prof_cible_corr.FINAL,
+    # données des observations au niveau du transect
+    nomCite, max.ab.sp.size, classe_taille) %>%
+  distinct() 
+```
+
+
+# Transect
+## Supression rôles NA, role singletons et incorrects
+```{r}
+TR %>%
+  distinct(idSINPRegroupement_tran, idSINPRegroupement_role,
+           role, techniqueEchantillonnage_tran, ) %>%
+  group_by(role, techniqueEchantillonnage_tran) %>%
+  tally() %>%
+  spread(role, n, fill=0) %>% 
+  kable(caption="nb de role")
+```
+
+Cx et Hx sont pour 2016
+
+```{r}
+TR %>%
+  distinct(idSINPRegroupement_tran, idSINPRegroupement_role, role, largeur) %>%
+  group_by(role, largeur) %>%
+  tally() %>%
+  kable(caption="nb role par largeur")
+
+TR %>%
+  distinct(idSINPRegroupement_tran, longueur, year, area) %>%
+  group_by(longueur, year, area) %>%
+  tally() %>%
+  spread(year, n) %>%
+  kable(caption="nb transect par longueur")
+
+TR.tmp <- TR %>% 
+  mutate(tech.tran.2=techniqueEchantillonnage_tran) %>%
+  select(-techniqueEchantillonnage_tran) %>%
+  # on supprime les tech d'éch Cx et Hx (2016 slmt) où il n'y a qu'un role
+  filter(tech.tran.2 == "HB" | tech.tran.2 == "CC") %>%
+  # on supprime les transects avec largeur B2 <2m et H4 <4m 
+  filter(role!= "B1.5" & role != "B1" & role != "H2" & role != "H3" & role != "C2") %>%
+  # on supprime longeur <30m 
+  filter(longueur == 30 | is.na(longueur)) 
+
+# on enlève les transects avec un seul rôle
+TR.single <- TR.tmp %>%
+  distinct(idSINPRegroupement_tran, idSINPRegroupement_role) %>%
+  group_by(idSINPRegroupement_tran) %>%
+  tally() %>%
+  filter(n<2) %>%
+  pull(idSINPRegroupement_tran)
+
+TR.tmp.nosingle <- TR.tmp %>%
+  filter(!idSINPRegroupement_tran %in% TR.single) %>%
+  # on supprime le role C1 du jeu
+  filter(role!="C1")
+
+# nb de transect supprimés
+TR %>% 
+  distinct(year, area, idSINPRegroupement_tran) %>%
+  group_by(year, area) %>%
+  tally() %>% spread(year, n) %>%
+  kable(caption = "Temps : nb transect RAW")
+
+TR.tmp.nosingle %>% 
+  distinct(year, area, idSINPRegroupement_tran) %>%
+  group_by(year, area) %>%
+  tally() %>% spread(year, n)%>%
+  kable(caption = "Temps : nb transect après suppresion de rôles à problème")
+```
+
+## Aggregation niveau transect - méthode normalization
+
+**! important de savoir pourquoi Steph a pris que les espèces et pourquoi elle a chosit ces classe de taille en particulier!** --> c'était parce qu'ils faisaient des analyses phylo et fonctionnelles du coup seulement les espèces sont exploitables dans ce cas là, dans notre cas on garde tous les taxons.
+
+### Niveau espèce
+```{r}
+DATA.sp <- TR.tmp.nosingle %>%
+  #dplyr::filter(!grepl("spp",nomCite)) %>% # remove spp
+  #dplyr::filter(!grepl("e fl",nomCite,fixed=T)) %>% # rm family
+  #dplyr::filter(!grepl("Mugilidae fl",nomCite)) %>% # rm temporary mugilidae from the database
+  mutate(abondance = as.numeric(as.character(abondance))) %>%
+  droplevels() # drop empty levels in each factor
+
+setdiff(unique(TR.tmp.nosingle$nomCite), unique(DATA.sp$nomCite))
+
+DATA.sp$nomCite2 <- gsub(" ", "_",DATA.sp$nomCite)
+
+# replace abundance by 0 if noSpecies
+DATA.sp <- DATA.sp %>%
+  mutate(ab.2 = case_when(nomCite=="No_species" ~ 0,
+                          TRUE ~ abondance)) %>%
+  select(-abondance) %>%
+  rename(abondance = ab.2)
+
+# check number of transect in each role category
+DATA.sp %>%
+  distinct(idSINPRegroupement_tran, tech.tran.2, role) %>%
+  group_by(tech.tran.2, role) %>%
+  tally() %>%
+  kable(caption="nb transect per role")
+
+# check if NAs in profondeur cible
+summary(DATA.sp$prof_cible_corr.FINAL)
+
+# factor prof_cible_corr to make groups ! need to change to numeric for analysis
+DATA.sp$prof_cible_corr.FINAL <- as.factor(DATA.sp$prof_cible_corr.FINAL)
+
+# select only H4 and C4 for rarefaction first
+DATA.sp.HC <- DATA.sp %>% dplyr::filter(role %in% c("C4","H4"))
+
+# list of group of transect by site, year, season, target depth and date
+rm(DATA.sp.list.site.HC)
+
+DATA.sp.list.site.HC <- DATA.sp.HC %>%
+  select(idSINPRegroupement_tran, nomCite2, role, abondance) %>%
+  filter(idSINPRegroupement_tran=="{DD818FBA-1208-476C-8728-29CCC6DB0860}") %>%
+  group_by(idSINPRegroupement_tran) %>%
+  group_split(., .keep=TRUE)  # voir code de Stéphanie elle a utilisé split mais j'arrivais pas à le faire fonctionner c'était trop long
+
+
+# rarefy H and C
+rm(DATA.sp.list.site.HC.rar)
+DATA.sp.list.site.HC.rar <- list()
+
+for (i in 1:length(DATA.sp.list.site.HC)){
+  
+  print(paste("i=",i))
+
+# temporary object to load the immersion
+temp <- DATA.sp.list.site.HC[[i]] %>% droplevels() %>% as.data.frame()
+
+
+# wide format
+temp.wide <- reshape2::dcast(temp %>% 
+                     dplyr::select(idSINPRegroupement_tran,
+                                   nomCite2, role, abondance), 
+                   idSINPRegroupement_tran+role ~ nomCite2,sum,variable.factor = F) %>% 
+                    mutate(role.V2 = substr(role, start = 1, stop = 1))
+
+# rarefy by # individual /2
+
+temp.mat <- temp.wide[3:(length(temp.wide)-1)] # select only species
+rownames(temp.mat) <- temp.wide$idSINPRegroupement_tran
+
+# replace abundance by 0 if noSpecies # Anais comment : not used because it is already done above 
+#  if (names(temp.mat) == "No_species") {
+#    temp.mat[1] <- 0
+#  } else {
+#    temp.mat <- temp.mat
+#  }
+
+# rarefy by n individuals/2
+n <- (rowSums(temp.mat)/2) %>% round() # n individuals
+
+# expected species for n/2
+n.spe <- vegan::rarefy(temp.mat,n)[1] %>% round()
+
+# observed - expected species
+n.cor <- vegan::specnumber(temp.mat) - n.spe
+
+# generate 999 random transect and summarize by mean and remove the least abondant species if n.cor >0
+temp.mat.2 <- matrix(NA,ncol=dim(temp.mat)[2],nrow=999)
+colnames(temp.mat.2) <- colnames(temp.mat)
+
+for (j in 1:999){
+  temp.mat.2[j,] <- vegan::rrarefy(temp.mat,sample=n)
+}
+
+# mean of abundance over the 999 permutation
+temp.com <- colMeans(temp.mat.2)
+
+if (specnumber(temp.com) == n.spe) { # if expected richness = observed richness
+  temp.com <- temp.com
+  } else { 
+  temp.com[which.minn(temp.com, n.cor)] <- 0 # if expected richness < observed richness, abundance of the n least abundant = 0
+  temp.com <- temp.com/sum(temp.com)*n  # standaridize the abondance based on the n number of individual (because setting ab=0 for the least abundant automatically reduce the number of individual that should be ket @ n)
+  }
+
+temp.com <- cbind(transect = rownames(temp.mat),round(temp.com))
+temp.com <- cbind(rownames(temp.com), data.frame(temp.com, row.names=NULL))
+colnames(temp.com)[1] <- "Species"
+temp.com <- temp.com %>%
+  mutate(role = rep(temp.wide$role.V2,dim(temp.com)[1]))
+DATA.sp.list.site.HC.rar[[i]] <- temp.com
+
+# clean objects
+rm(temp)
+rm(temp.wide)
+rm(temp.mat.2)
+rm(temp.com)
+rm(n)
+rm(n.cor)
+rm(n.spe)
+rm(temp.com)
+
+} # end global loop
+
+# list to dataframe (transect*species)
+DATA.sp.list.site.HC.com <- rbindlist(DATA.sp.list.site.HC.rar) %>% as.data.frame()
+colnames(DATA.sp.list.site.HC.com)[2] <- "idSINPRegroupement_tran"
+colnames(DATA.sp.list.site.HC.com)[3] <- "abondance"
+
+#  rbind B transects
+DATA.sp.B <- DATA.sp %>%
+  filter(role %in% c("B2")) %>% 
+  select(nomCite2,idSINPRegroupement_tran, abondance, role) 
+DATA.sp.B  <- DATA.sp.B %>%
+  mutate(role = rep("B",dim(DATA.sp.B)[1]))
+colnames(DATA.sp.B)[1] <- "Species"
+
+# concatenate C+H and B
+DATA.sp.BHC <- rbind(DATA.sp.list.site.HC.com, DATA.sp.B)  %>% 
+  mutate(Species = as.factor(Species)) %>%
+  mutate(idSINPRegroupement_tran = as.factor(idSINPRegroupement_tran)) %>%
+  mutate(abondance = as.numeric(abondance)) %>%
+  mutate(role = as.factor(role))
+head(DATA.sp.BHC)
+
+# Sum the abundances found by role at the transect level for H et B
+DATA.sp.BHC.wide <- DATA.sp.BHC %>%
+  group_by(idSINPRegroupement_tran, Species) %>%
+  dplyr::summarize(abundance = sum(abondance)) %>%
+  tidyr::spread(key = Species, value = abundance) %>%
+  as.data.frame()
+DATA.sp.BHC.wide[is.na(DATA.sp.BHC.wide)] <- 0
+
+# ajout par Anaïs pour trouver les espèces avec 0 abondance
+colnames(DATA.sp.BHC.wide[-1][colSums(DATA.sp.BHC.wide[-1]) == 0])
+                     
+DATA.sp.BHC.wide.v2 <- DATA.sp.BHC.wide %>%
+  select(idSINPRegroupement_tran, 
+         !colnames(DATA.sp.BHC.wide[-1][colSums(DATA.sp.BHC.wide[-1]) == 0]))
+
+
+# quels sont les transect qui doivent être retransformés en nospecies
+DATA.sp.BHC.wide.v2[1][rowSums(DATA.sp.BHC.wide.v2[-1]) == 0, ] 
+
+# rebuild base access format
+DATA.sp.info <- DATA.sp %>% 
+   select(# données de l'immersion
+     idSINPRegroupement_imm, 
+         area, site, habitat_type, exploit_LH, cote_large, 
+         code_site, zone, longitude_DD, latitude_DD, method, 
+         Date, day, month, year, saison, session, 
+         heure_immersion, no_immersion, no_palanquee, institut, 
+         plongeur_1, plongeur_2, plongeur_3, site, hauteur_eau, materiel_respiratoire, 
+    # données du transect
+    idSINPRegroupement_tran, 
+         tech.tran.2, no_transect, 
+         tempsDebut, tempsFin, prof_cible_corr.FINAL) %>%
+  distinct()
+
+
+TR.agg.sp <- DATA.sp.BHC.wide.v2 %>%
+  gather("nomCite.2", "abondance.tran.norm", -idSINPRegroupement_tran) %>%
+  # supprime abondance = 0
+  filter(abondance.tran.norm>0 ) %>%
+  full_join(DATA.sp.info, by="idSINPRegroupement_tran") %>%
+  mutate(nomCite = case_when(is.na(nomCite.2) ~ "No_species", 
+                             TRUE ~ nomCite.2)) %>%
+  select(-nomCite.2)
+  
+setequal(TR.agg.sp %>%
+  filter(nomCite=="No_species") %>%
+  distinct(idSINPRegroupement_tran) %>%
+  pull(idSINPRegroupement_tran), 
+  DATA.sp.BHC.wide.v2[1][rowSums(DATA.sp.BHC.wide.v2[-1]) == 0, ])
+
+length(unique(DATA.sp$idSINPRegroupement_tran))
+length(unique(TR.agg.sp$idSINPRegroupement_tran))
+summary(TR.agg.sp$abondance.tran.norm)
+
+#DATA.sp.wide <- DATA.sp %>%
+#  group_by(idSINPRegroupement_tran, nomCite2) %>%
+#  dplyr::summarize(abundance = sum(abondance)) %>%
+#  tidyr::spread(key = nomCite2, value = abundance) %>%
+#  as.data.frame()
+
+#dim(DATA.sp.BHC.wide)
+#dim(DATA.sp.wide)
+
+#toto <- DATA.sp.BHC %>% 
+#   group_by(idSINPRegroupement_tran, Species) %>%
+#   dplyr::summarize(abundance = sum(abondance)) 
+
+#DATA.sp %>%
+#  select(nomCite2, idSINPRegroupement_tran, role, abondance) %>%
+#  group_by(nomCite2, idSINPRegroupement_tran) %>%
+#  summarize(abondance.raw=sum(abondance)) %>%
+#  rename(Species=nomCite2) %>%
+#  left_join(toto) %>% 
+#  filter(abundance!=abondance.raw) %>% head()
+  
+
+```
+
+### Niveau espèce-classe de taille
+
+```{r}
+  # make class size based on max length 
+  #mutate(class.size = case_when(taille <= Max_length/3 ~ "P",
+  #                              taille > Max_length/3 & taille <= 2*Max_length/3 ~ "M",
+  #                              taille > 2*Max_length/3 ~ "G")) %>%
+  # make class size to match the one of TC : unique(TC$classe_taille)
+  #mutate(class.size = case_when(between(taille, 1, 5) ~ "1-5cm",
+  #                              between(taille, 6, 15) ~ "6-15cm",
+  #                              between(taille, 16, 40) ~ "16-40cm",
+  #                              taille > 41 ~ "sup41cm")) %>%
+
+DATA.sp.size <- TR.tmp.nosingle %>%
+  #dplyr::filter(!grepl("spp",nomCite)) %>% # remove spp
+  #dplyr::filter(!grepl("e fl",nomCite,fixed=T)) %>% # rm family
+  #dplyr::filter(!grepl("Mugilidae fl",nomCite)) %>% # #rm temporary mugilidae from the database
+  mutate(abondance = as.numeric(as.character(abondance))) %>%
+  droplevels() %>% # drop empty levels in each factor 
+  left_join(traits.taxa.uvc, by="nomCite") %>%
+  # make class size based on max length 
+  mutate(size.class.PMG = case_when(taille <= Max_length/3 ~ "P",
+                                taille > Max_length/3 & taille <= 2*Max_length/3 ~ "M",
+                                taille > 2*Max_length/3 ~ "G")) %>%
+    mutate(size.class = cut(taille, 1*c(0.5,1.5,2.5,3.5,4.5,5.5,7,9,11,13,15,17,19,22.5,27.5,32.5,37.5,42.5,
+                                      47.5,52.5,57.5,65,75,85,95,110,130,175,225,275,325),include.lowest=T,right=F)) %>% # create class size (bins = see ) # rajout Anais de 0.5
+  mutate(mode_size = ifelse(size.class == "[0.5,1.5)",1,#rajout Anais
+                          ifelse(size.class == "[1.5,2.5)",2,
+                           ifelse(size.class =="[2.5,3.5)",3,
+                            ifelse(size.class =="[3.5,4.5)",4,
+                            ifelse(size.class =="[4.5,5.5)",5,
+                            ifelse(size.class =="[5.5,7)",6.25,
+                            ifelse(size.class =="[7,9)",8,
+                            ifelse(size.class =="[9,11)",10,
+                            ifelse(size.class =="[11,13)",12,
+                            ifelse(size.class =="[13,15)",14,
+                           ifelse(size.class =="[15,17)",16,
+                           ifelse(size.class =="[17,19)",18,
+                            ifelse(size.class =="[19,22.5)",20.75,
+                            ifelse(size.class =="[22.5,27.5)",25,
+                            ifelse(size.class =="[27.5,32.5)",30, 
+                            ifelse(size.class =="[32.5,37.5)",35,  
+                            #ifelse(size.class =="[27.5,32.5)",30,  
+                            #ifelse(size.class =="[32.5,37.5)",35,
+                            ifelse(size.class =="[37.5,42.5)",40, 
+                           ifelse(size.class =="[42.5,47.5)",45,  
+                            ifelse(size.class =="[47.5,52.5)",50,  
+                            ifelse(size.class =="[52.5,57.5)",55,
+                            ifelse(size.class =="[57.5,65)",61.25, 
+                            ifelse(size.class =="[65,75)",70,  
+                            ifelse(size.class =="[75,85)",80,  
+                            ifelse(size.class =="[85,95)",90,
+                            ifelse(size.class =="[95,110)",102.5, 
+                            ifelse(size.class =="[110,130)",120,  
+                            ifelse(size.class =="[130,175)",152.5,  
+                            ifelse(size.class =="[175,225)",200, 
+                            ifelse(size.class =="[225,275)",250,  
+                          ifelse(size.class =="[275,325)",300,NA))))))))))))))))))))))))))))))) %>% #)) %>%
+  mutate(size.class.mode = case_when(mode_size <= Max_length/3 ~ "P",
+                                mode_size > Max_length/3 & mode_size <= 2*Max_length/3 ~ "M",
+                                mode_size > 2*Max_length/3 ~ "G"))
+
+# attention pour ces cas il n'y a pas la correspondance entre mode_classe et P/M/G classe 
+DATA.sp.size %>%
+   filter(size.class.PMG!=size.class.mode) %>%
+   group_by(nomCite, taille, size.class.mode, size.class.PMG, mode_size, Max_length) %>%
+   summarize(sum(abondance)) %>% 
+  kable()
+
+#DATA.sp.size %>%    
+#   group_by(nomCite, taille, size.class, size.class.PMG, mode_size, Max_length, size.class.mode) %>%
+#   summarize(sum(abondance)) %>% View()
+
+# inclue _ in species name
+DATA.sp.size$nomCite2 <- gsub(" ", "_",DATA.sp.size$nomCite)
+# create new species name*size class column
+DATA.sp.size <- DATA.sp.size %>% mutate(nomCite_size = paste(nomCite2, size.class, sep="_"))
+
+# replace abundance by 0 if noSpecies
+DATA.sp.size <- DATA.sp.size %>% mutate(ab.2 = case_when(nomCite=="No_species" ~ 0,
+                                         TRUE ~ abondance)) %>%
+  select(-abondance) %>%
+  rename(abondance = ab.2)
+
+# check number of transect in each role category
+DATA.sp.size %>%
+  distinct(idSINPRegroupement_tran, tech.tran.2, role) %>%
+  group_by(tech.tran.2, role) %>%
+  tally() %>%
+  kable(caption="nb transect per role")
+
+# check if NAs in profondeur cible
+summary(DATA.sp.size$prof_cible_corr.FINAL)
+
+# factor prof_cible_corr to make groups ! need to change to numeric for analysis
+DATA.sp.size$prof_cible_corr.FINAL <- as.factor(DATA.sp.size$prof_cible_corr.FINAL)
+
+# select only H4 and C4 for rarefaction first
+DATA.sp.size.HC <- DATA.sp.size %>% dplyr::filter(role %in% c("C4","H4"))
+
+# list of group of transect by site, year, season, target depth and date
+rm(DATA.sp.size.list.site.HC)
+
+DATA.sp.size.list.site.HC <- DATA.sp.size.HC %>%
+  select(idSINPRegroupement_tran, nomCite_size, role, abondance) %>%
+  group_by(idSINPRegroupement_tran) %>%
+  group_split(., .keep=TRUE) # voir code de Stéphanie elle a utilisé split mais j'arrivais pas à le faire fonctionner c'était trop long
+
+# rarefy H and C
+rm(DATA.sp.size.list.site.HC.rar)
+DATA.sp.size.list.site.HC.rar <- list()
+
+for (i in 1:length(DATA.sp.size.list.site.HC)){
+  
+  print(paste("i=",i))
+
+# temporary object to load the immersion
+temp <- DATA.sp.size.list.site.HC[[i]] %>% droplevels() %>% as.data.frame()
+
+# wide format
+temp.wide <- reshape2::dcast(temp %>% 
+                     dplyr::select(idSINPRegroupement_tran,
+                                   nomCite_size, role, abondance), 
+                   idSINPRegroupement_tran+role ~ nomCite_size,sum,variable.factor = F) %>% 
+                    mutate(role.V2 = substr(role, start = 1, stop = 1))
+
+# rarefy by # individual /2
+temp.mat <- temp.wide[3:(length(temp.wide)-1)] # select only species
+rownames(temp.mat) <- temp.wide$idSINPRegroupement_tran
+
+# replace abundance by 0 if noSpecies # Anais comment : not used because it is already done above 
+#  if (names(temp.mat) == "No_species_NA") {
+#    temp.mat[1] <- 0
+#  } else {
+#    temp.mat <- temp.mat
+#  }
+
+# rarefy by n individuals/2
+n <- (rowSums(temp.mat)/2) %>% round() # n individuals
+
+# expected species for n/2
+n.spe <- rarefy(temp.mat,n)[1] %>% round()
+
+# observed - expected species
+n.cor <- specnumber(temp.mat) - n.spe
+
+# generate 999 random transect and summarize by mean and remove the meast abondant species if n.cor >0
+temp.mat.2 <- matrix(NA,ncol=dim(temp.mat)[2],nrow=999)
+colnames(temp.mat.2) <- colnames(temp.mat)
+
+for (j in 1:999){
+  temp.mat.2[j,] <- rrarefy(temp.mat,sample=n)
+}
+
+# mean of abundance over the 999 permutation
+temp.com <- colMeans(temp.mat.2)
+
+if (specnumber(temp.com) == n.spe) { # if expected richness = observed richness
+  temp.com <- temp.com
+  } else { 
+  temp.com[which.minn(temp.com, n.cor)] <- 0 # if expected richness < observed richness, abundance of the n least abundant = 0
+  temp.com <- temp.com/sum(temp.com)*n  # standaridize the abondance based on the n number of individual (because setting ab=0 for the least abundant automatically reduce the number of individual that should be ket @ n)
+  }
+
+temp.com <- cbind(transect = rownames(temp.mat),round(temp.com))
+temp.com <- cbind(rownames(temp.com), data.frame(temp.com, row.names=NULL))
+colnames(temp.com)[1] <- "nomCite_size"
+temp.com <- temp.com %>%
+  mutate(role = rep(temp.wide$role.V2,dim(temp.com)[1]))
+DATA.sp.size.list.site.HC.rar[[i]] <- temp.com
+
+# clean objects
+rm(temp)
+rm(temp.wide)
+rm(temp.mat.2)
+rm(temp.com)
+rm(n)
+rm(n.cor)
+rm(n.spe)
+rm(temp.com)
+
+} # end global loop
+
+# list to dataframe (transect*species)
+rm(DATA.sp.size.list.site.HC.com)
+DATA.sp.size.list.site.HC.com <- rbindlist(DATA.sp.size.list.site.HC.rar) %>% as.data.frame()
+colnames(DATA.sp.size.list.site.HC.com)[2] <- "idSINPRegroupement_tran"
+colnames(DATA.sp.size.list.site.HC.com)[3] <- "abondance"
+
+#  rbind B transects
+rm(DATA.sp.size.B)
+DATA.sp.size.B <- DATA.sp.size %>% dplyr::filter(role %in% c("B2")) %>% 
+  dplyr::select(nomCite_size,idSINPRegroupement_tran,abondance,role) 
+DATA.sp.size.B  <- DATA.sp.size.B %>%
+  mutate(role = rep("B",dim(DATA.sp.size.B)[1]))
+colnames(DATA.sp.size.B)[1] <- "nomCite_size"
+
+# concatenate C+H and B
+rm(DATA.sp.size.BHC)
+DATA.sp.size.BHC <- rbind(DATA.sp.size.list.site.HC.com, DATA.sp.size.B)  %>% 
+  mutate(nomCite_size = as.factor(nomCite_size)) %>%
+  mutate(idSINPRegroupement_tran = as.factor(idSINPRegroupement_tran)) %>%
+  mutate(abondance = as.numeric(abondance)) %>%
+  mutate(role = as.factor(role))
+head(DATA.sp.size.BHC)
+summary(DATA.sp.size.BHC)
+
+########### ABUNDANCE ##########
+# wide matrix for simple abundance 
+rm(DATA.sp.size.BHC.wide.ab)
+DATA.sp.size.BHC.wide.ab <- DATA.sp.size.BHC %>%
+  group_by(idSINPRegroupement_tran, nomCite_size) %>%
+  dplyr::summarize(abundance = sum(abondance)) %>%
+  tidyr::spread(key = nomCite_size, value = abundance) %>%
+  as.data.frame()
+DATA.sp.size.BHC.wide.ab[is.na(DATA.sp.size.BHC.wide.ab)] <- 0
+
+# rm empty columns
+# ajout par Anaïs pour trouver les espèces avec 0 abondance
+colnames(DATA.sp.size.BHC.wide.ab[-1][colSums(DATA.sp.size.BHC.wide.ab[-1]) == 0])
+
+DATA.sp.size.BHC.wide.ab.v2 <- DATA.sp.size.BHC.wide.ab %>%
+  select(idSINPRegroupement_tran, 
+         !colnames(DATA.sp.size.BHC.wide.ab[-1][colSums(DATA.sp.size.BHC.wide.ab[-1]) == 0]))
+
+
+dim(DATA.sp.size.BHC.wide.ab.v2)
+
+
+# rebuild base access format
+DATA.sp.size.info <- DATA.sp.size %>% 
+   select(# données de l'immersion
+     idSINPRegroupement_imm, 
+         area, site, habitat_type, exploit_LH, cote_large, 
+         code_site, zone, longitude_DD, latitude_DD, method, 
+         Date, day, month, year, saison, session, 
+         heure_immersion, no_immersion, no_palanquee, institut, 
+         plongeur_1, plongeur_2, plongeur_3, site, hauteur_eau, materiel_respiratoire, 
+    # données du transect
+    idSINPRegroupement_tran, 
+         tech.tran.2, no_transect, 
+         tempsDebut, tempsFin, prof_cible_corr.FINAL) %>%
+  distinct()
+
+
+# quels sont les transect qui doivent être retransformés en nospecies
+DATA.sp.size.BHC.wide.ab.v2[1][rowSums(DATA.sp.size.BHC.wide.ab.v2[-1]) == 0, ] 
+
+TR.agg.sp.size <- DATA.sp.size.BHC.wide.ab.v2 %>%
+  gather("nomCite_size", "abondance.tran.norm", -idSINPRegroupement_tran) %>%
+  # supprime abondance = 0
+  filter(abondance.tran.norm>0 ) %>%
+  left_join(., DATA.sp.size %>% select(nomCite, nomCite_size, mode_size) %>% distinct(), by="nomCite_size") %>%
+  full_join(DATA.sp.size.info, by="idSINPRegroupement_tran") %>%
+  mutate(nomCite.tmp = case_when(is.na(nomCite_size) ~ "No_species", 
+                             TRUE ~ nomCite)) %>%
+  select(-nomCite) %>%
+  rename(nomCite = nomCite.tmp)
+
+  
+setequal(TR.agg.sp.size %>%
+  filter(nomCite=="No_species") %>%
+  distinct(idSINPRegroupement_tran) %>%
+  pull(idSINPRegroupement_tran), 
+  DATA.sp.size.BHC.wide.ab.v2[1][rowSums(DATA.sp.size.BHC.wide.ab.v2[-1]) == 0, ])
+
+
+length(unique(TR.agg.sp.size$idSINPRegroupement_tran))
+summary(TR.agg.sp.size$abondance.tran.norm)
+
+########### BIOMASS ##########
+
+# retrieve mode of size class for biomass computation
+DATA.sp.size.BHC.2 <- left_join(DATA.sp.size.BHC, 
+                                DATA.sp.size %>%
+                                  select(nomCite, nomCite2, nomCite_size, mode_size) %>%
+                                  distinct(),
+                                by="nomCite_size")
+
+# retrieve a and b for biomass
+DATA.sp.size.BHC.2 <- left_join(DATA.sp.size.BHC.2,
+                                traits.taxa.uvc, by="nomCite")
+
+# compute biomass for each raw
+DATA.sp.size.BHC.2  <- DATA.sp.size.BHC.2  %>%
+  mutate(biomass = round(abondance*(a*mode_size^b),3)) # g/m2
+
+# wide matrix for simple biomass 
+rm(DATA.sp.size.BHC.wide.biom)
+DATA.sp.size.BHC.wide.biom <- DATA.sp.size.BHC.2 %>%
+  group_by(idSINPRegroupement_tran, nomCite2) %>%
+  dplyr::summarize(Sum.biomass = sum(biomass)) %>%
+  tidyr::spread(key = nomCite2, value = Sum.biomass,fill=0) %>%
+  as.data.frame()
+DATA.sp.size.BHC.wide.biom[is.na(DATA.sp.size.BHC.wide.biom)] <- 0
+
+# rm empty columns
+# ajout par Anaïs pour trouver les espèces avec 0 abondance
+colnames(DATA.sp.size.BHC.wide.biom[-1][colSums(DATA.sp.size.BHC.wide.biom[-1]) == 0])
+
+DATA.sp.size.BHC.wide.biom.v2 <- DATA.sp.size.BHC.wide.biom %>%
+  select(idSINPRegroupement_tran, 
+         !colnames(DATA.sp.size.BHC.wide.biom[-1][colSums(DATA.sp.size.BHC.wide.biom[-1]) == 0]))
+
+
+dim(DATA.sp.size.BHC.wide.biom.v2)
+
+
+# rebuild base access format
+DATA.sp.size.info <- DATA.sp.size %>% 
+   select(# données de l'immersion
+     idSINPRegroupement_imm, 
+         area, site, habitat_type, exploit_LH, cote_large, 
+         code_site, zone, longitude_DD, latitude_DD, method, 
+         Date, day, month, year, saison, session, 
+         heure_immersion, no_immersion, no_palanquee, institut, 
+         plongeur_1, plongeur_2, plongeur_3, site, hauteur_eau, materiel_respiratoire, 
+    # données du transect
+    idSINPRegroupement_tran, 
+         tech.tran.2, no_transect, 
+         tempsDebut, tempsFin, prof_cible_corr.FINAL) %>%
+  distinct()
+
+
+# quels sont les transect qui doivent être retransformés en nospecies
+DATA.sp.size.BHC.wide.biom.v2[1][rowSums(DATA.sp.size.BHC.wide.biom.v2[-1]) == 0, ] 
+
+TR.agg.sp.size.biom <- DATA.sp.size.BHC.wide.biom.v2 %>%
+  gather("nomCite.2", "biomasse.tran.norm", -idSINPRegroupement_tran) %>%
+  # supprime abondance = 0
+  filter(biomasse.tran.norm>0 ) %>%
+  full_join(DATA.sp.size.info, by="idSINPRegroupement_tran") %>%
+  mutate(nomCite = case_when(is.na(nomCite.2) ~ "No_species", 
+                             TRUE ~ nomCite.2)) %>%
+  select(-nomCite.2)
+  
+setequal(TR.agg.sp.size.biom %>%
+  filter(nomCite=="No_species") %>%
+  distinct(idSINPRegroupement_tran) %>%
+  pull(idSINPRegroupement_tran), 
+  DATA.sp.size.BHC.wide.biom.v2[1][rowSums(DATA.sp.size.BHC.wide.biom.v2[-1]) == 0, ])
+
+length(unique(DATA.sp.size$idSINPRegroupement_tran))
+length(unique(TR.agg.sp.size.biom$idSINPRegroupement_tran))
+summary(TR.agg.sp.size.biom$biomasse.tran.norm)
+
+```
+
+## Aggregation niveau transect - méthode densité
+
+exprimer les abondances en densités : nombre d'individus / 100m²
+
+
+```{r}
+unique(TR.tmp.nosingle$role)
+
+# Densité (nombre d'individus / 100m²) au niveau de l'espèce
+TR.agg.sp.density <- TR.tmp.nosingle %>% 
+  group_by(nomCite, idSINPRegroupement_role) %>%
+  mutate(abondance.sp = sum(abondance)) %>%
+  mutate(densite.role.sp = case_when(role == "C4" | role == "H4" ~ abondance * 100 / (30*4),
+                             role == "B2" ~ abondance * 100 / (30*2))) %>%
+  group_by(tech.tran.2, idSINPRegroupement_tran, nomCite) %>%
+  mutate(densite.sp = sum(densite.role.sp)) 
+
+TR.agg.sp.density.v2 <- TR.agg.sp.density %>%
+  select(# données de l'immersion
+     idSINPRegroupement_imm, 
+         area, site, habitat_type, exploit_LH, cote_large, 
+         code_site, zone, longitude_DD, latitude_DD, method, 
+         Date, day, month, year, saison, session, 
+         heure_immersion, no_immersion, no_palanquee, institut, 
+         plongeur_1, plongeur_2, plongeur_3, site, hauteur_eau, materiel_respiratoire, 
+    # données du transect
+    idSINPRegroupement_tran, 
+         tech.tran.2, no_transect, 
+         tempsDebut, tempsFin, prof_cible_corr.FINAL,
+    # données d'observation
+  nomCite, densite.sp) %>%
+  distinct()
+  
+# Densité (nombre d'individus / 100m²) au niveau de l'espèce_taille  
+TR.agg.sp.density.sizePMG <- TR.tmp.nosingle %>% 
+  left_join(traits.taxa.uvc, by="nomCite") %>%
+  mutate(class.size = case_when(taille <= Max_length/3 ~ "P",
+                                taille > Max_length/3 & taille <= 2*Max_length/3 ~ "M",
+                                taille > 2*Max_length/3 ~ "G")) %>%
+  unite(nomCite_size,c(nomCite, class.size) ,remove=F) %>%
+  group_by(nomCite_size, idSINPRegroupement_role) %>%
+  mutate(abondance.sp.size = sum(abondance)) %>%
+  mutate(densite.role.sp.size = case_when(role == "C4" | role == "H4" ~ abondance * 100 / (30*4),
+                             role == "B2" ~ abondance * 100 / (30*2))) %>%
+  group_by(tech.tran.2, idSINPRegroupement_tran, nomCite_size) %>%
+  mutate(densite.sp.size = sum(densite.role.sp.size)) 
+
+TR.agg.sp.density.sizePMG.v2 <- TR.agg.sp.density.sizePMG %>%
+  select(# données de l'immersion
+     idSINPRegroupement_imm, 
+         area, site, habitat_type, exploit_LH, cote_large, 
+         code_site, zone, longitude_DD, latitude_DD, method, 
+         Date, day, month, year, saison, session, 
+         heure_immersion, no_immersion, no_palanquee, institut, 
+         plongeur_1, plongeur_2, plongeur_3, site, hauteur_eau, materiel_respiratoire, 
+    # données du transect
+    idSINPRegroupement_tran, 
+         tech.tran.2, no_transect, 
+         tempsDebut, tempsFin, prof_cible_corr.FINAL,
+    # données d'observation
+  nomCite, nomCite_size, densite.sp.size) %>%
+  distinct()
+```
+
+## Aggregation niveau tronçon - méthode normalization
+
+### Niveau espèce
+```{r}
+# on enlève les transects dont au moins un des role n'a pas les 3 tronçcons
+TR.tronc.miss <- TR.tmp.nosingle %>%
+  filter(year == "2019" | year == "2020") %>%
+  filter(no_section!="s0") %>%
+  distinct(idSINPRegroupement_tran, 
+           idSINPRegroupement_role, idSINPRegroupement_sec) %>%
+  group_by(idSINPRegroupement_tran, idSINPRegroupement_role) %>%
+  tally() %>%
+  filter(n<3) %>%
+  distinct(idSINPRegroupement_tran) %>%
+  pull(idSINPRegroupement_tran)
+
+DATA.sp.troncon <- TR.tmp.nosingle %>%
+  filter(year == "2019" | year == "2020") %>%
+  filter(no_section!="s0") %>%
+  filter(!idSINPRegroupement_tran %in% TR.tronc.miss) %>%
+  mutate(abondance = as.numeric(as.character(abondance))) %>%
+  droplevels() # drop empty levels in each factor
+
+DATA.sp.troncon$nomCite2 <- gsub(" ", "_",DATA.sp.troncon$nomCite)
+
+# replace abundance by 0 if noSpecies
+DATA.sp.troncon <- DATA.sp.troncon %>%
+  mutate(ab.2 = case_when(nomCite=="No_species" ~ 0,
+                          TRUE ~ abondance)) %>%
+  select(-abondance) %>%
+  rename(abondance = ab.2)
+
+# check number of transect in each role category
+DATA.sp.troncon %>%
+  distinct(idSINPRegroupement_tran, tech.tran.2, role) %>%
+  group_by(tech.tran.2, role) %>%
+  tally() %>%
+  kable(caption="nb transect per role")
+
+# check if NAs in profondeur cible
+summary(DATA.sp.troncon$prof_cible_corr.FINAL)
+
+# factor prof_cible_corr to make groups ! need to change to numeric for analysis
+DATA.sp.troncon$prof_cible_corr.FINAL <- as.factor(DATA.sp.troncon$prof_cible_corr.FINAL)
+
+# select only H4 and C4 for rarefaction first
+DATA.sp.troncon.HC <- DATA.sp.troncon %>% dplyr::filter(role %in% c("C4","H4"))
+
+# list of group of transect by site, year, season, target depth and date
+rm(DATA.sp.list.site.HC)
+
+DATA.sp.troncon.list.site.HC <- DATA.sp.troncon.HC %>%
+  select(idSINPRegroupement_sec, nomCite2, role, abondance) %>%
+  group_by(idSINPRegroupement_sec) %>%
+  group_split(., .keep=TRUE) # voir code de Stéphanie elle a utilisé split mais j'arrivais pas à le faire fonctionner c'était trop long
+
+# rarefy H and C
+rm(DATA.sp.troncon.list.site.HC.rar)
+DATA.sp.troncon.list.site.HC.rar <- list()
+
+for (i in 1:length(DATA.sp.troncon.list.site.HC)){
+  print(paste("i=",i))
+
+# temporary object to load the immersion
+temp <- DATA.sp.troncon.list.site.HC[[i]] %>% droplevels() %>% as.data.frame()
+
+
+# wide format
+temp.wide <- reshape2::dcast(temp %>% 
+                     dplyr::select(idSINPRegroupement_sec,
+                                   nomCite2, role, abondance), 
+                   idSINPRegroupement_sec+role ~ nomCite2,sum,variable.factor = F) %>% 
+                    mutate(role.V2 = substr(role, start = 1, stop = 1))
+
+# rarefy by # individual /2
+
+temp.mat <- temp.wide[3:(length(temp.wide)-1)] # select only species
+rownames(temp.mat) <- temp.wide$idSINPRegroupement_sec
+
+# replace abundance by 0 if noSpecies # Anais comment : not used because it is already done above 
+#  if (names(temp.mat) == "No_species") {
+#    temp.mat[1] <- 0
+#  } else {
+#    temp.mat <- temp.mat
+#  }
+
+# rarefy by n individuals/2
+n <- (rowSums(temp.mat)/2) %>% round() # n individuals
+
+# expected species for n/2
+n.spe <- vegan::rarefy(temp.mat,n)[1] %>% round()
+
+# observed - expected species
+n.cor <- vegan::specnumber(temp.mat) - n.spe
+
+# generate 999 random transect and summarize by mean and remove the least abondant species if n.cor >0
+temp.mat.2 <- matrix(NA,ncol=dim(temp.mat)[2],nrow=999)
+colnames(temp.mat.2) <- colnames(temp.mat)
+
+for (j in 1:999){
+  temp.mat.2[j,] <- vegan::rrarefy(temp.mat,sample=n)
+}
+
+# mean of abundance over the 999 permutation
+temp.com <- colMeans(temp.mat.2)
+
+if (specnumber(temp.com) == n.spe) { # if expected richness = observed richness
+  temp.com <- temp.com
+  } else { 
+  temp.com[which.minn(temp.com, n.cor)] <- 0 # if expected richness < observed richness, abundance of the n least abundant = 0
+  temp.com <- temp.com/sum(temp.com)*n  # standaridize the abondance based on the n number of individual (because setting ab=0 for the least abundant automatically reduce the number of individual that should be ket @ n)
+  }
+
+temp.com <- cbind(transect = rownames(temp.mat),round(temp.com))
+temp.com <- cbind(rownames(temp.com), data.frame(temp.com, row.names=NULL))
+colnames(temp.com)[1] <- "Species"
+temp.com <- temp.com %>%
+  mutate(role = rep(temp.wide$role.V2,dim(temp.com)[1]))
+DATA.sp.troncon.list.site.HC.rar[[i]] <- temp.com
+
+# clean objects
+rm(temp)
+rm(temp.wide)
+rm(temp.mat.2)
+rm(temp.com)
+rm(n)
+rm(n.cor)
+rm(n.spe)
+rm(temp.com)
+
+} # end global loop
+
+# list to dataframe (transect*species)
+DATA.sp.troncon.list.site.HC.com <- rbindlist(DATA.sp.troncon.list.site.HC.rar) %>% as.data.frame()
+colnames(DATA.sp.troncon.list.site.HC.com)[2] <- "idSINPRegroupement_sec"
+colnames(DATA.sp.troncon.list.site.HC.com)[3] <- "abondance"
+
+# ! important de prendre id_tran et no_section et non pas id_sec car id_sec est différéent pour chaque rôle donc quand on remonte au niveau section cela ne se somme pas pour H et B
+link.df <- DATA.sp.troncon %>%
+  distinct(idSINPRegroupement_tran, 
+           idSINPRegroupement_sec, no_section)
+
+DATA.sp.troncon.list.site.HC.com.2 <- DATA.sp.troncon.list.site.HC.com %>%
+  left_join(link.df) %>%
+  select(-idSINPRegroupement_sec)
+  
+
+#  rbind B transects
+DATA.sp.troncon.B <- DATA.sp.troncon %>%
+  filter(role %in% c("B2")) %>% 
+  select(nomCite2, idSINPRegroupement_tran, no_section, abondance, role) 
+DATA.sp.troncon.B  <- DATA.sp.troncon.B %>%
+  mutate(role = rep("B",dim(DATA.sp.troncon.B)[1]))
+colnames(DATA.sp.troncon.B)[1] <- "Species"
+
+# concatenate C+H and B
+DATA.sp.troncon.BHC <- rbind(DATA.sp.troncon.list.site.HC.com.2, DATA.sp.troncon.B) %>% 
+  mutate(Species = as.factor(Species)) %>%
+  mutate(idSINPRegroupement_tran = as.factor(idSINPRegroupement_tran)) %>%
+  mutate(abondance = as.numeric(abondance)) %>%
+  mutate(role = as.factor(role)) %>%
+  unite(id_tran_sec, c(idSINPRegroupement_tran, no_section)) 
+
+head(DATA.sp.troncon.BHC)
+summary(DATA.sp.troncon.BHC)
+
+# Sum the abundances found by role at the transect level for H et B
+DATA.sp.troncon.BHC.wide <- DATA.sp.troncon.BHC %>%
+  group_by(id_tran_sec, Species) %>%
+  dplyr::summarize(abundance = sum(abondance)) %>%
+  tidyr::spread(key = Species, value = abundance) %>%
+  as.data.frame()
+DATA.sp.troncon.BHC.wide[is.na(DATA.sp.troncon.BHC.wide)] <- 0
+
+
+dim(DATA.sp.troncon.BHC.wide)
+# rm empty columns
+# ajout par Anaïs pour trouver les espèces avec 0 abondance
+colnames(DATA.sp.troncon.BHC.wide[-1][colSums(DATA.sp.troncon.BHC.wide[-1]) == 0])
+
+DATA.sp.troncon.BHC.wide.v2 <- DATA.sp.troncon.BHC.wide %>%
+  select(id_tran_sec, 
+         !colnames(DATA.sp.troncon.BHC.wide[-1][colSums(DATA.sp.troncon.BHC.wide[-1]) == 0]))
+
+dim(DATA.sp.troncon.BHC.wide.v2)
+
+# quels sont les transect qui doivent être retransformés en nospecies
+DATA.sp.troncon.BHC.wide.v2[1][rowSums(DATA.sp.troncon.BHC.wide.v2[-1]) == 0, ] 
+
+# rebuild base access format
+DATA.sp.troncon.info <- DATA.sp.troncon %>% 
+   select(# données de l'immersion
+     idSINPRegroupement_imm, 
+         area, site, habitat_type, exploit_LH, cote_large, 
+         code_site, zone, longitude_DD, latitude_DD, method, 
+         Date, day, month, year, saison, session, 
+         heure_immersion, no_immersion, no_palanquee, institut, 
+         plongeur_1, plongeur_2, plongeur_3, site, hauteur_eau, materiel_respiratoire, 
+    # données du transect
+    idSINPRegroupement_tran, 
+         tech.tran.2, no_transect, 
+         tempsDebut, tempsFin, prof_cible_corr.FINAL,
+    # données du troncon ! surout pas le id_sec car il est différent par role
+    no_section) %>%
+  distinct() %>%
+  unite("id_tran_sec", c(idSINPRegroupement_tran, no_section), remove=F)
+
+
+TR.agg.sp.troncon <- DATA.sp.troncon.BHC.wide.v2 %>%
+  gather("nomCite.2", "abondance.sec.norm", -id_tran_sec) %>%
+  # supprime abondance = 0
+  filter(abondance.sec.norm>0 ) %>%
+  full_join(DATA.sp.troncon.info, by="id_tran_sec") %>%
+  mutate(nomCite = case_when(is.na(nomCite.2) ~ "No_species", 
+                             TRUE ~ nomCite.2)) %>%
+  select(-nomCite.2)
+  
+setequal(TR.agg.sp.troncon %>%
+  filter(nomCite=="No_species") %>%
+  distinct(id_tran_sec) %>%
+  pull(id_tran_sec), 
+  DATA.sp.troncon.BHC.wide.v2[1][rowSums(DATA.sp.troncon.BHC.wide.v2[-1]) == 0, ])
+
+length(unique(TR.agg.sp.troncon$id_tran_sec))
+
+DATA.sp.troncon %>% unite(id_tran_id, c(idSINPRegroupement_tran, no_section)) %>% distinct(id_tran_id) %>% dim()
+
+summary(TR.agg.sp.troncon$abondance.sec.norm)
+
+
+```
+
+
+```{r}
+# comparaison abondance between species and species_size datase
+TR.agg.sp %>% filter(nomCite!="No_species") %>% summarize(sum(abondance.tran.norm))
+TR.agg.sp.size %>% filter(nomCite!="No_species") %>% summarize(sum(abondance.tran.norm))
+TR.agg.sp.troncon %>% filter(nomCite!="No_species") %>% summarize(sum(abondance.sec.norm))
+```
+
+# Make P/M/G après 
+
+les classes définies au dessus pour la normalisaion sont pour lisser les jeux car il est difficile d'avoir les tailles exactes donc il vaut mieux travailler en classe de taille très proche (ex 14-16 cm). Du coup après, il faut le mode en fonction P/M/G pour avoir les classes de taille pour les analyses.
+
+
+```{r}
+TR.agg.sp.size.PMG <- TR.agg.sp.size %>%
+    left_join(traits.taxa.uvc, by="nomCite") %>%
+    mutate(size.class.mode = case_when(mode_size <= Max_length/3 ~ "P",
+                                mode_size > Max_length/3 & mode_size <= 2*Max_length/3 ~ "M",
+                                mode_size > 2*Max_length/3 ~ "G")) %>%
+  # on fait la somme des abondances au niveau de la classe de taille P/M/G
+  group_by(nomCite_size, idSINPRegroupement_tran) %>%
+  mutate(ab.tran.sp.size = sum(abondance.tran.norm)) %>%
+  # on enlève colonnes associées aux modes de classe de taille
+  as.data.frame() %>%
+  select(-abondance.tran.norm, -mode_size, -nomCite_size) %>%
+  distinct()
+```
+
+
+# Export DATA
+
+```{r}
+# Temps - niveau transect
+save(TC.agg.sp, file = "./Data/TC_agg_sp.RData")
+save(TC.agg.sp.size, file = "./Data/TC_agg_sp_size.RData")
+
+# Transect - niveau transect
+## -- Normalization
+save(TR.agg.sp, file = "./Data/TR_agg_sp.RData")
+save(TR.agg.sp.size, file = "./Data/TR_agg_sp_size.RData")
+save(TR.agg.sp.size.biom, file = "./Data/TR_agg_sp_size_biom.RData")
+
+# -- Densité
+save(TR.agg.sp.density.v2, file = "./Data/TR_agg_sp_density.RData")
+save(TR.agg.sp.density.sizePMG.v2, file = "./Data/TR_agg_sp_density_size.RData")
+
+# Transect - niveau tronçon
+## -- Normalization
+save(TR.agg.sp.troncon, file = "./Data/TR_agg_sp_troncon.RData")
+```
+
+# Sessioninfo
+
+```{r}
+sessionInfo()
+```
