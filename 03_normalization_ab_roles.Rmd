@@ -11,7 +11,7 @@ output:
     thumbnails: no
     toc_depth: 6
     number_sections: true
-    #css: styles.css # if we want to save the styles in a css and call it inside of having it inside the case as here.
+    css: styles.css # if we want to save the styles in a css and call it inside of having it inside the case as here.
     #https://github.com/juba/rmdformats/blob/master/inst/templates/readthedown/readthedown.css
     #https://stackoverflow.com/questions/42935320/how-to-change-the-color-theme-on-rmdformats-readthedown
 editor_options:
@@ -25,56 +25,6 @@ editor_options:
    });
 </script>
 
-<style>
-#sidebar {
-  background: seagreen;
-}
-
-#sidebar h2{
-    z-index:200;
-    background-color:#7fcdbb;
-    text-align:center;
-    padding:0.809em;
-    display:block;
-    color:#fcfcfc;
-    font-size: 100%;
-    margin-top: 0px;
-    margin-bottom:0.809em;
-}
-
-#postamble {
-  background:steelblue;
-  border-top:solid 10px #003366;
-}
-
-.title {
-  text-align: center;
-}
-
-.subtitle {
-  color: #edf8b1;
-}
-
-h1, h2, h3, h4, h5, h6, legend {
-  color: #003366;
-  font-weight:bold;
-}
-
-
-#content h1 {
-    background-color: white;
-    color: #8c510a;
-}
-
-#content h2 {
-    color: #bf812d;
-}
-
-#content h3 {
-    color: #dfc27d;
-}
-
-</style>
   
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE, cache = TRUE)
@@ -152,7 +102,7 @@ TR <- TR.modif
 TC <- TC.modif
 
 # Trait for maximum length and biomass computation
-traits.bdd <- read.csv2("C:/Users/arey/Documents/01_Patrinat/02_Pocoroch_projet/01_Analyses/02_Analyses_rapportMTE_Sept2021/Traits/BDD_MarieCaroline/BDD_Poissons côtiers_MCH.csv")
+traits.bdd <- read.csv2("./Traits/BDD_MarieCaroline/BDD_Poissons côtiers_MCH.csv")
 
 taxa.uvc <- unique(c(TR$nomCite, TC$nomCite)) %>%
   as.data.frame() %>%
@@ -435,9 +385,6 @@ TR.tmp.nosingle %>%
 ### Niveau espèce
 ```{r}
 DATA.sp <- TR.tmp.nosingle %>%
-  #dplyr::filter(!grepl("spp",nomCite)) %>% # remove spp
-  #dplyr::filter(!grepl("e fl",nomCite,fixed=T)) %>% # rm family
-  #dplyr::filter(!grepl("Mugilidae fl",nomCite)) %>% # rm temporary mugilidae from the database
   mutate(abondance = as.numeric(as.character(abondance))) %>%
   droplevels() # drop empty levels in each factor
 
@@ -473,7 +420,7 @@ rm(DATA.sp.list.site.HC)
 
 DATA.sp.list.site.HC <- DATA.sp.HC %>%
   select(idSINPRegroupement_tran, nomCite2, role, abondance) %>%
-  filter(idSINPRegroupement_tran=="{DD818FBA-1208-476C-8728-29CCC6DB0860}") %>%
+  #filter(idSINPRegroupement_tran=="{F4271AE9-C6BF-4E9D-AF8A-179064A31D1C}") %>%
   group_by(idSINPRegroupement_tran) %>%
   group_split(., .keep=TRUE)  # voir code de Stéphanie elle a utilisé split mais j'arrivais pas à le faire fonctionner c'était trop long
 
@@ -577,23 +524,22 @@ DATA.sp.BHC <- rbind(DATA.sp.list.site.HC.com, DATA.sp.B)  %>%
 head(DATA.sp.BHC)
 
 # Sum the abundances found by role at the transect level for H et B
-DATA.sp.BHC.wide <- DATA.sp.BHC %>%
+DATA.sp.BHC.tmp <- DATA.sp.BHC %>%
   group_by(idSINPRegroupement_tran, Species) %>%
-  dplyr::summarize(abundance = sum(abondance)) %>%
-  tidyr::spread(key = Species, value = abundance) %>%
-  as.data.frame()
-DATA.sp.BHC.wide[is.na(DATA.sp.BHC.wide)] <- 0
+  dplyr::summarize(abundance = sum(abondance)) 
 
-# ajout par Anaïs pour trouver les espèces avec 0 abondance
-colnames(DATA.sp.BHC.wide[-1][colSums(DATA.sp.BHC.wide[-1]) == 0])
-                     
-DATA.sp.BHC.wide.v2 <- DATA.sp.BHC.wide %>%
-  select(idSINPRegroupement_tran, 
-         !colnames(DATA.sp.BHC.wide[-1][colSums(DATA.sp.BHC.wide[-1]) == 0]))
+sp.0 <- DATA.sp.BHC.wide %>%
+  group_by(Species) %>%
+  summarize(sum.sp=sum(abundance)) %>%
+  filter(sum.sp==0) %>%
+  filter(Species!="No_species") %>%
+  pull(Species)
 
-
-# quels sont les transect qui doivent être retransformés en nospecies
-DATA.sp.BHC.wide.v2[1][rowSums(DATA.sp.BHC.wide.v2[-1]) == 0, ] 
+# Remove species which have been dropped to 0 with the normalization step, excpet no_species
+DATA.sp.BHC.noSp0 <- DATA.sp.BHC.tmp %>%
+  filter(!Species %in% sp.0) %>%
+  rename(nomCite = Species,
+         abondance.tran.norm = abundance)
 
 # rebuild base access format
 DATA.sp.info <- DATA.sp %>% 
@@ -611,66 +557,28 @@ DATA.sp.info <- DATA.sp %>%
   distinct()
 
 
-TR.agg.sp <- DATA.sp.BHC.wide.v2 %>%
-  gather("nomCite.2", "abondance.tran.norm", -idSINPRegroupement_tran) %>%
-  # supprime abondance = 0
-  filter(abondance.tran.norm>0 ) %>%
+TR.agg.sp <- DATA.sp.BHC.noSp0 %>%
   full_join(DATA.sp.info, by="idSINPRegroupement_tran") %>%
-  mutate(nomCite = case_when(is.na(nomCite.2) ~ "No_species", 
-                             TRUE ~ nomCite.2)) %>%
-  select(-nomCite.2)
+  # in case the normalization removed the few occurences of a transect, we need to modify this transect into "no_species"
+  mutate(nomCite = as.character(nomCite)) %>%
+  mutate(nomCite2 = case_when(is.na(nomCite) ~ "No_species",
+                             TRUE ~ nomCite)) %>%
+  mutate(abondance.tran.norm2 = case_when(is.na(abondance.tran.norm) ~ 0,
+                                         TRUE ~ abondance.tran.norm)) %>%
+  select(-nomCite, -abondance.tran.norm) %>%
+  rename(nomCite = nomCite2,
+         abondance.tran.norm = abondance.tran.norm2)
   
-setequal(TR.agg.sp %>%
-  filter(nomCite=="No_species") %>%
-  distinct(idSINPRegroupement_tran) %>%
-  pull(idSINPRegroupement_tran), 
-  DATA.sp.BHC.wide.v2[1][rowSums(DATA.sp.BHC.wide.v2[-1]) == 0, ])
-
 length(unique(DATA.sp$idSINPRegroupement_tran))
 length(unique(TR.agg.sp$idSINPRegroupement_tran))
 summary(TR.agg.sp$abondance.tran.norm)
-
-#DATA.sp.wide <- DATA.sp %>%
-#  group_by(idSINPRegroupement_tran, nomCite2) %>%
-#  dplyr::summarize(abundance = sum(abondance)) %>%
-#  tidyr::spread(key = nomCite2, value = abundance) %>%
-#  as.data.frame()
-
-#dim(DATA.sp.BHC.wide)
-#dim(DATA.sp.wide)
-
-#toto <- DATA.sp.BHC %>% 
-#   group_by(idSINPRegroupement_tran, Species) %>%
-#   dplyr::summarize(abundance = sum(abondance)) 
-
-#DATA.sp %>%
-#  select(nomCite2, idSINPRegroupement_tran, role, abondance) %>%
-#  group_by(nomCite2, idSINPRegroupement_tran) %>%
-#  summarize(abondance.raw=sum(abondance)) %>%
-#  rename(Species=nomCite2) %>%
-#  left_join(toto) %>% 
-#  filter(abundance!=abondance.raw) %>% head()
-  
 
 ```
 
 ### Niveau espèce-classe de taille
 
 ```{r}
-  # make class size based on max length 
-  #mutate(class.size = case_when(taille <= Max_length/3 ~ "P",
-  #                              taille > Max_length/3 & taille <= 2*Max_length/3 ~ "M",
-  #                              taille > 2*Max_length/3 ~ "G")) %>%
-  # make class size to match the one of TC : unique(TC$classe_taille)
-  #mutate(class.size = case_when(between(taille, 1, 5) ~ "1-5cm",
-  #                              between(taille, 6, 15) ~ "6-15cm",
-  #                              between(taille, 16, 40) ~ "16-40cm",
-  #                              taille > 41 ~ "sup41cm")) %>%
-
 DATA.sp.size <- TR.tmp.nosingle %>%
-  #dplyr::filter(!grepl("spp",nomCite)) %>% # remove spp
-  #dplyr::filter(!grepl("e fl",nomCite,fixed=T)) %>% # rm family
-  #dplyr::filter(!grepl("Mugilidae fl",nomCite)) %>% # #rm temporary mugilidae from the database
   mutate(abondance = as.numeric(as.character(abondance))) %>%
   droplevels() %>% # drop empty levels in each factor 
   left_join(traits.taxa.uvc, by="nomCite") %>%
@@ -696,8 +604,6 @@ DATA.sp.size <- TR.tmp.nosingle %>%
                             ifelse(size.class =="[22.5,27.5)",25,
                             ifelse(size.class =="[27.5,32.5)",30, 
                             ifelse(size.class =="[32.5,37.5)",35,  
-                            #ifelse(size.class =="[27.5,32.5)",30,  
-                            #ifelse(size.class =="[32.5,37.5)",35,
                             ifelse(size.class =="[37.5,42.5)",40, 
                            ifelse(size.class =="[42.5,47.5)",45,  
                             ifelse(size.class =="[47.5,52.5)",50,  
@@ -863,25 +769,22 @@ summary(DATA.sp.size.BHC)
 
 ########### ABUNDANCE ##########
 # wide matrix for simple abundance 
-rm(DATA.sp.size.BHC.wide.ab)
-DATA.sp.size.BHC.wide.ab <- DATA.sp.size.BHC %>%
+rm(DATA.sp.size.BHC.ab)
+DATA.sp.size.BHC.ab <- DATA.sp.size.BHC %>%
   group_by(idSINPRegroupement_tran, nomCite_size) %>%
-  dplyr::summarize(abundance = sum(abondance)) %>%
-  tidyr::spread(key = nomCite_size, value = abundance) %>%
-  as.data.frame()
-DATA.sp.size.BHC.wide.ab[is.na(DATA.sp.size.BHC.wide.ab)] <- 0
+  dplyr::summarize(abundance = sum(abondance)) 
 
-# rm empty columns
-# ajout par Anaïs pour trouver les espèces avec 0 abondance
-colnames(DATA.sp.size.BHC.wide.ab[-1][colSums(DATA.sp.size.BHC.wide.ab[-1]) == 0])
+sp.size.0 <- DATA.sp.size.BHC.ab %>%
+  group_by(nomCite_size) %>%
+  summarize(sum.sp=sum(abundance)) %>%
+  filter(sum.sp==0) %>%
+  filter(!str_detect(nomCite_size, "No_species")) %>%
+  pull(nomCite_size)
 
-DATA.sp.size.BHC.wide.ab.v2 <- DATA.sp.size.BHC.wide.ab %>%
-  select(idSINPRegroupement_tran, 
-         !colnames(DATA.sp.size.BHC.wide.ab[-1][colSums(DATA.sp.size.BHC.wide.ab[-1]) == 0]))
-
-
-dim(DATA.sp.size.BHC.wide.ab.v2)
-
+# Remove species which have been dropped to 0 with the normalization step, excpet no_species
+DATA.sp.size.BHC.ab.noSp0 <- DATA.sp.size.BHC.ab %>%
+  filter(!nomCite_size %in% sp.size.0) %>% 
+  rename(abondance.tran.norm = abundance)
 
 # rebuild base access format
 DATA.sp.size.info <- DATA.sp.size %>% 
@@ -899,28 +802,21 @@ DATA.sp.size.info <- DATA.sp.size %>%
   distinct()
 
 
-# quels sont les transect qui doivent être retransformés en nospecies
-DATA.sp.size.BHC.wide.ab.v2[1][rowSums(DATA.sp.size.BHC.wide.ab.v2[-1]) == 0, ] 
-
-TR.agg.sp.size <- DATA.sp.size.BHC.wide.ab.v2 %>%
-  gather("nomCite_size", "abondance.tran.norm", -idSINPRegroupement_tran) %>%
-  # supprime abondance = 0
-  filter(abondance.tran.norm>0 ) %>%
+TR.agg.sp.size <- DATA.sp.size.BHC.ab.noSp0 %>%
   left_join(., DATA.sp.size %>% select(nomCite, nomCite_size, mode_size) %>% distinct(), by="nomCite_size") %>%
   full_join(DATA.sp.size.info, by="idSINPRegroupement_tran") %>%
-  mutate(nomCite.tmp = case_when(is.na(nomCite_size) ~ "No_species", 
-                             TRUE ~ nomCite)) %>%
-  select(-nomCite) %>%
-  rename(nomCite = nomCite.tmp)
-
-  
-setequal(TR.agg.sp.size %>%
-  filter(nomCite=="No_species") %>%
-  distinct(idSINPRegroupement_tran) %>%
-  pull(idSINPRegroupement_tran), 
-  DATA.sp.size.BHC.wide.ab.v2[1][rowSums(DATA.sp.size.BHC.wide.ab.v2[-1]) == 0, ])
+  # in case the normalization removed the few occurences of a transect, we need to modify this transect into "no_species"
+  mutate(nomCite_size = as.character(nomCite_size)) %>%
+  mutate(nomCite_size2 = case_when(is.na(nomCite_size) ~ "No_species",
+                             TRUE ~ nomCite_size)) %>%
+  mutate(abondance.tran.norm2 = case_when(is.na(abondance.tran.norm) ~ 0,
+                                         TRUE ~ abondance.tran.norm)) %>%
+  select(-nomCite_size, -abondance.tran.norm) %>%
+  rename(nomCite_size = nomCite_size2,
+         abondance.tran.norm = abondance.tran.norm2) 
 
 
+length(unique(DATA.sp.size$idSINPRegroupement_tran))
 length(unique(TR.agg.sp.size$idSINPRegroupement_tran))
 summary(TR.agg.sp.size$abondance.tran.norm)
 
@@ -941,25 +837,24 @@ DATA.sp.size.BHC.2 <- left_join(DATA.sp.size.BHC.2,
 DATA.sp.size.BHC.2  <- DATA.sp.size.BHC.2  %>%
   mutate(biomass = round(abondance*(a*mode_size^b),3)) # g/m2
 
-# wide matrix for simple biomass 
-rm(DATA.sp.size.BHC.wide.biom)
-DATA.sp.size.BHC.wide.biom <- DATA.sp.size.BHC.2 %>%
+# sum biomass per species 
+rm(DATA.sp.size.BHC.biom)
+DATA.sp.size.BHC.biom <- DATA.sp.size.BHC.2 %>%
   group_by(idSINPRegroupement_tran, nomCite2) %>%
-  dplyr::summarize(Sum.biomass = sum(biomass)) %>%
-  tidyr::spread(key = nomCite2, value = Sum.biomass,fill=0) %>%
-  as.data.frame()
-DATA.sp.size.BHC.wide.biom[is.na(DATA.sp.size.BHC.wide.biom)] <- 0
+  dplyr::summarize(Sum.biomass = sum(biomass)) 
 
-# rm empty columns
-# ajout par Anaïs pour trouver les espèces avec 0 abondance
-colnames(DATA.sp.size.BHC.wide.biom[-1][colSums(DATA.sp.size.BHC.wide.biom[-1]) == 0])
+sp.biom.0 <- DATA.sp.size.BHC.biom %>%
+  group_by(nomCite2) %>%
+  summarize(sum.sp=sum(Sum.biomass)) %>%
+  filter(sum.sp==0) %>%
+  filter(nomCite2!="No_species") %>%
+  pull(nomCite2)
 
-DATA.sp.size.BHC.wide.biom.v2 <- DATA.sp.size.BHC.wide.biom %>%
-  select(idSINPRegroupement_tran, 
-         !colnames(DATA.sp.size.BHC.wide.biom[-1][colSums(DATA.sp.size.BHC.wide.biom[-1]) == 0]))
-
-
-dim(DATA.sp.size.BHC.wide.biom.v2)
+# Remove species which have been dropped to 0 with the normalization step, excpet no_species
+DATA.sp.size.BHC.biom.noSp0 <- DATA.sp.size.BHC.biom %>%
+  filter(!nomCite2 %in% sp.0) %>%
+  rename(nomCite = nomCite2,
+         biomasse.tran.norm = Sum.biomass)
 
 
 # rebuild base access format
@@ -978,23 +873,18 @@ DATA.sp.size.info <- DATA.sp.size %>%
   distinct()
 
 
-# quels sont les transect qui doivent être retransformés en nospecies
-DATA.sp.size.BHC.wide.biom.v2[1][rowSums(DATA.sp.size.BHC.wide.biom.v2[-1]) == 0, ] 
 
-TR.agg.sp.size.biom <- DATA.sp.size.BHC.wide.biom.v2 %>%
-  gather("nomCite.2", "biomasse.tran.norm", -idSINPRegroupement_tran) %>%
-  # supprime abondance = 0
-  filter(biomasse.tran.norm>0 ) %>%
+TR.agg.sp.size.biom <- DATA.sp.size.BHC.biom.noSp0 %>%
   full_join(DATA.sp.size.info, by="idSINPRegroupement_tran") %>%
-  mutate(nomCite = case_when(is.na(nomCite.2) ~ "No_species", 
-                             TRUE ~ nomCite.2)) %>%
-  select(-nomCite.2)
-  
-setequal(TR.agg.sp.size.biom %>%
-  filter(nomCite=="No_species") %>%
-  distinct(idSINPRegroupement_tran) %>%
-  pull(idSINPRegroupement_tran), 
-  DATA.sp.size.BHC.wide.biom.v2[1][rowSums(DATA.sp.size.BHC.wide.biom.v2[-1]) == 0, ])
+  # in case the normalization removed the few occurences of a transect, we need to modify this transect into "no_species"
+  mutate(nomCite = as.character(nomCite)) %>%
+  mutate(nomCite2 = case_when(is.na(nomCite) ~ "No_species",
+                             TRUE ~ nomCite)) %>%
+  mutate(biomasse.tran.norm2 = case_when(is.na(biomasse.tran.norm) ~ 0,
+                                         TRUE ~ biomasse.tran.norm)) %>%
+  select(-nomCite, -biomasse.tran.norm) %>%
+  rename(nomCite = nomCite2,
+         biomasse.tran.norm = biomasse.tran.norm2)
 
 length(unique(DATA.sp.size$idSINPRegroupement_tran))
 length(unique(TR.agg.sp.size.biom$idSINPRegroupement_tran))
@@ -1233,27 +1123,24 @@ head(DATA.sp.troncon.BHC)
 summary(DATA.sp.troncon.BHC)
 
 # Sum the abundances found by role at the transect level for H et B
-DATA.sp.troncon.BHC.wide <- DATA.sp.troncon.BHC %>%
+DATA.sp.troncon.BHC.tmp <- DATA.sp.troncon.BHC %>%
   group_by(id_tran_sec, Species) %>%
-  dplyr::summarize(abundance = sum(abondance)) %>%
-  tidyr::spread(key = Species, value = abundance) %>%
-  as.data.frame()
-DATA.sp.troncon.BHC.wide[is.na(DATA.sp.troncon.BHC.wide)] <- 0
+  dplyr::summarize(abundance = sum(abondance)) 
 
+dim(DATA.sp.troncon.BHC.tmp)
 
-dim(DATA.sp.troncon.BHC.wide)
-# rm empty columns
-# ajout par Anaïs pour trouver les espèces avec 0 abondance
-colnames(DATA.sp.troncon.BHC.wide[-1][colSums(DATA.sp.troncon.BHC.wide[-1]) == 0])
+sp.sec.0 <- DATA.sp.troncon.BHC.tmp %>%
+  group_by(Species) %>%
+  summarize(sum.sp=sum(abundance)) %>%
+  filter(sum.sp==0) %>%
+  filter(Species!="No_species") %>%
+  pull(Species)
 
-DATA.sp.troncon.BHC.wide.v2 <- DATA.sp.troncon.BHC.wide %>%
-  select(id_tran_sec, 
-         !colnames(DATA.sp.troncon.BHC.wide[-1][colSums(DATA.sp.troncon.BHC.wide[-1]) == 0]))
-
-dim(DATA.sp.troncon.BHC.wide.v2)
-
-# quels sont les transect qui doivent être retransformés en nospecies
-DATA.sp.troncon.BHC.wide.v2[1][rowSums(DATA.sp.troncon.BHC.wide.v2[-1]) == 0, ] 
+# Remove species which have been dropped to 0 with the normalization step, excpet no_species
+DATA.sp.troncon.BHC.noSp0 <- DATA.sp.troncon.BHC.tmp %>%
+  filter(!Species %in% sp.0) %>%
+  rename(nomCite = Species,
+         abondance.sec.norm = abundance)
 
 # rebuild base access format
 DATA.sp.troncon.info <- DATA.sp.troncon %>% 
@@ -1274,36 +1161,30 @@ DATA.sp.troncon.info <- DATA.sp.troncon %>%
   unite("id_tran_sec", c(idSINPRegroupement_tran, no_section), remove=F)
 
 
-TR.agg.sp.troncon <- DATA.sp.troncon.BHC.wide.v2 %>%
-  gather("nomCite.2", "abondance.sec.norm", -id_tran_sec) %>%
-  # supprime abondance = 0
-  filter(abondance.sec.norm>0 ) %>%
+TR.agg.sp.troncon <- DATA.sp.troncon.BHC.noSp0 %>%
   full_join(DATA.sp.troncon.info, by="id_tran_sec") %>%
-  mutate(nomCite = case_when(is.na(nomCite.2) ~ "No_species", 
-                             TRUE ~ nomCite.2)) %>%
-  select(-nomCite.2)
+  # in case the normalization removed the few occurences of a transect, we need to modify this transect into "no_species"
+  mutate(nomCite = as.character(nomCite)) %>%
+  mutate(nomCite2 = case_when(is.na(nomCite) ~ "No_species",
+                             TRUE ~ nomCite)) %>%
+  mutate(abondance.sec.norm2 = case_when(is.na(abondance.sec.norm) ~ 0,
+                                         TRUE ~ abondance.sec.norm)) %>%
+  select(-nomCite, -abondance.sec.norm) %>%
+  rename(nomCite = nomCite2,
+         abondance.sec.norm = abondance.sec.norm2)
   
-setequal(TR.agg.sp.troncon %>%
-  filter(nomCite=="No_species") %>%
-  distinct(id_tran_sec) %>%
-  pull(id_tran_sec), 
-  DATA.sp.troncon.BHC.wide.v2[1][rowSums(DATA.sp.troncon.BHC.wide.v2[-1]) == 0, ])
-
-length(unique(TR.agg.sp.troncon$id_tran_sec))
 
 DATA.sp.troncon %>% unite(id_tran_id, c(idSINPRegroupement_tran, no_section)) %>% distinct(id_tran_id) %>% dim()
-
+length(unique(TR.agg.sp.troncon$id_tran_sec))
 summary(TR.agg.sp.troncon$abondance.sec.norm)
-
 
 ```
 
 
 ```{r}
 # comparaison abondance between species and species_size datase
-TR.agg.sp %>% filter(nomCite!="No_species") %>% summarize(sum(abondance.tran.norm))
-TR.agg.sp.size %>% filter(nomCite!="No_species") %>% summarize(sum(abondance.tran.norm))
-TR.agg.sp.troncon %>% filter(nomCite!="No_species") %>% summarize(sum(abondance.sec.norm))
+TR.agg.sp %>% as.data.frame()  %>% summarize(sum(abondance.tran.norm))
+TR.agg.sp.size %>% as.data.frame() %>% summarize(sum(abondance.tran.norm))
 ```
 
 # Make P/M/G après 
@@ -1313,12 +1194,12 @@ les classes définies au dessus pour la normalisaion sont pour lisser les jeux c
 
 ```{r}
 TR.agg.sp.size.PMG <- TR.agg.sp.size %>%
-    left_join(traits.taxa.uvc, by="nomCite") %>%
-    mutate(size.class.mode = case_when(mode_size <= Max_length/3 ~ "P",
+  left_join(traits.taxa.uvc, by="nomCite") %>%
+  mutate(size.class.mode = case_when(mode_size <= Max_length/3 ~ "P",
                                 mode_size > Max_length/3 & mode_size <= 2*Max_length/3 ~ "M",
                                 mode_size > 2*Max_length/3 ~ "G")) %>%
   # on fait la somme des abondances au niveau de la classe de taille P/M/G
-  group_by(nomCite_size, idSINPRegroupement_tran) %>%
+  group_by(nomCite, size.class.mode, idSINPRegroupement_tran) %>%
   mutate(ab.tran.sp.size = sum(abondance.tran.norm)) %>%
   # on enlève colonnes associées aux modes de classe de taille
   as.data.frame() %>%
@@ -1337,7 +1218,7 @@ save(TC.agg.sp.size, file = "./Data/TC_agg_sp_size.RData")
 # Transect - niveau transect
 ## -- Normalization
 save(TR.agg.sp, file = "./Data/TR_agg_sp.RData")
-save(TR.agg.sp.size, file = "./Data/TR_agg_sp_size.RData")
+save(TR.agg.sp.size.PMG, file = "./Data/TR_agg_sp_size_PMG.RData")
 save(TR.agg.sp.size.biom, file = "./Data/TR_agg_sp_size_biom.RData")
 
 # -- Densité

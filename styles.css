@@ -1,0 +1,55 @@
+#sidebar {
+    position:fixed;
+    top:0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    height:100%;
+    background:seagreen;
+    z-index:200;
+    font-size: 16px;
+}
+
+#sidebar h2{
+    z-index:200;
+    background-color:#7fcdbb;
+    text-align:center;
+    padding:0.809em;
+    display:block;
+    color:#fcfcfc;
+    font-size: 100%;
+    margin-top: 0px;
+    margin-bottom:0.809em;
+}
+
+#postamble {
+  background:steelblue;
+  border-top:solid 10px #003366;
+}
+
+.title {
+  text-align: center;
+}
+
+.subtitle {
+  color: #edf8b1;
+}
+
+h1, h2, h3, h4, h5, h6, legend {
+  color: #003366;
+  font-weight:bold;
+}
+
+
+#content h1 {
+    background-color: white;
+    color: #8c510a;
+}
+
+#content h2 {
+    color: #bf812d;
+}
+
+#content h3 {
+    color: #dfc27d;
+}

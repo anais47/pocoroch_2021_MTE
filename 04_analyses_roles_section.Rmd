@@ -11,7 +11,7 @@ output:
     thumbnails: no
     toc_depth: 6
     number_sections: true
-    #css: styles.css # if we want to save the styles in a css and call it inside of having it inside the case as here.
+    css: styles.css # if we want to save the styles in a css and call it inside of having it inside the case as here.
     #https://github.com/juba/rmdformats/blob/master/inst/templates/readthedown/readthedown.css
     #https://stackoverflow.com/questions/42935320/how-to-change-the-color-theme-on-rmdformats-readthedown
 editor_options:
@@ -25,56 +25,6 @@ editor_options:
    });
 </script>
 
-<style>
-#sidebar {
-  background: seagreen;
-}
-
-#sidebar h2{
-    z-index:200;
-    background-color:#7fcdbb;
-    text-align:center;
-    padding:0.809em;
-    display:block;
-    color:#fcfcfc;
-    font-size: 100%;
-    margin-top: 0px;
-    margin-bottom:0.809em;
-}
-
-#postamble {
-  background:steelblue;
-  border-top:solid 10px #003366;
-}
-
-.title {
-  text-align: center;
-}
-
-.subtitle {
-  color: #edf8b1;
-}
-
-h1, h2, h3, h4, h5, h6, legend {
-  color: #003366;
-  font-weight:bold;
-}
-
-
-#content h1 {
-    background-color: white;
-    color: #8c510a;
-}
-
-#content h2 {
-    color: #bf812d;
-}
-
-#content h3 {
-    color: #dfc27d;
-}
-
-</style>
   
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE, cache = FALSE)
@@ -82,35 +32,35 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE
 
 **But du script: **
 
-on vire dès le début ile yeu et noirmoutier car pas vérifié pour transect ????
-!!! attention à cache=TRUE
+  + Evaluer l'importance des rôles Haut et Bas pour l'infralittoral et des rôles Côte à côte pour le circalittoral dans la détection de diversité 
+  
+  + Evaluer l'importance de la longueur du transect dans la détection de diversité
 
-# Load packages 
-
-```{r packages}
-library(dplyr)
-library(rlist)
-library(tidyr)
-library(stringr)
-library(knitr)
-library(ggplot2)
-library(forcats)
-library(adespatial)
-library(tibble)
-library(rfishbase)
-library(ggpubr)
-library(ade4)
-library(reshape2)
-library(purrr)
-library(vegan)
-```
-
-# Set working directory
-
+# Load packages {.tabset}
+## Plot
 ```{r}
-#setwd("C:/Users/arey/Documents/01_Patrinat/02_Pocoroch_projet/01_Analyses/02_Analyses_rapportMTE_Sept2021/")
+library(ggplot2)
+library(knitr)
+library(ggpubr)
 ```
 
+## Formatting
+```{r}
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(purrr)
+library(stringr)
+library(forcats)
+library(reshape2)
+```
+
+## Ecology 
+```{r}
+library(vegan)
+library(adespatial)
+library(ade4)
+```
 
 # Import data
 
@@ -129,7 +79,7 @@ TC <- TC.modif
 TR.sec <- TR.agg.sp.troncon
 
 # Trait habitats
-habitat <- read.csv2("C:/Users/arey/Documents/01_Patrinat/02_Pocoroch_projet/01_Analyses/02_Analyses_rapportMTE_Sept2021/Traits/Habitat_Pierre/Taxa_habitat_PT.csv")
+habitat <- read.csv2("./Traits/Habitat_Pierre/Taxa_habitat_PT.csv")
 ```
 
 # Roles
@@ -176,7 +126,9 @@ TR.forRole %>%
            role, tech.tran.2) %>%
   group_by(role, tech.tran.2) %>%
   tally() %>%
-  spread(role, n, fill=0) %>% as.data.frame()
+  spread(role, n, fill=0) %>% 
+  kable(caption="Protocole Transect : nb de role par tech d'échantillonnage")
+
 
 # --- Time count
 unique(TC$role) # tous les transects n'ont pas un rôle
@@ -189,9 +141,9 @@ TC.nosp %>%
            role, techniqueEchantillonnage_tran) %>%
   group_by(role, techniqueEchantillonnage_tran) %>%
   tally() %>%
-  spread(role, n, fill=0)
+  spread(role, n, fill=0) 
 
-# on vire les roles avec no_species et avec NA et les techniques d'éch à problème
+# on supprime les roles avec no_species et avec NA et les techniques d'éch à problème
 TC.tmp <-  TC.nosp %>% 
   # on supprime les cas où le rôle n'est pas rentré (que pour 2018 normalement)
   filter(!is.na(role)) %>%
@@ -251,50 +203,30 @@ TC.forRole %>%
            role, tech.tran.2) %>%
   group_by(role, tech.tran.2) %>%
   tally() %>%
-  spread(role, n, fill=0)
+  spread(role, n, fill=0) %>% 
+  kable(caption="Protocole Temps : nb de role par tech d'échantillonnage")
 ```
 
 
 ## Diversite alpha par role
 
-Boxplot de richesse spécifique et indice de Shanon par rôle
-
-```{r eval=FALSE}
-make.com <- function(df, role.chosen){
-  df.com <- df %>%
-    filter(role == role.chosen) %>% 
-    select(nomCite, ab.2, idSINPRegroupement_tran) %>%
-    spread(nomCite, ab.2, fill=0) %>%
-    column_to_rownames(var="idSINPRegroupement_tran")
-
-  return(df.com) 
-}
-
-TC.H <- make.com(df=TC.forRole, role.chosen = "H")
-TC.B <- make.com(df=TC.forRole, role.chosen = "B")
-
-TR.H <- make.com(df=TR.forRole, role.chosen = "H")
-TR.B <- make.com(df=TR.forRole, role.chosen = "B")
-
-TC.C <- make.com(df=TC.forRole, role.chosen = "C")
-TC.N <- make.com(df=TC.forRole, role.chosen = "N")
-
-TR.C <- make.com(df=TR.forRole, role.chosen = "C")
-TR.N <- make.com(df=TR.forRole, role.chosen = "N")
-```
+Boxplot des indices de diversité
 
 ```{r}
-role.data <- bind_rows(TC.forRole, TR.forRole) %>%
-  select(idSINPRegroupement_role, role, tech.tran.2, protocole) %>%
-  distinct() %>%
-  arrange(idSINPRegroupement_role) 
-
+# on combine les communautés des 2 protocoles
 role.comm <- bind_rows(TC.forRole, TR.forRole) %>%
   select(nomCite, ab.2, idSINPRegroupement_role) %>%
   spread(nomCite, ab.2, fill=0) %>%
   arrange(idSINPRegroupement_role) %>%
   column_to_rownames(var="idSINPRegroupement_role")
 
+# on combine les informations des rôles des 2 protocoles
+role.data <- bind_rows(TC.forRole, TR.forRole) %>%
+  select(idSINPRegroupement_role, role, tech.tran.2, protocole) %>%
+  distinct() %>%
+  arrange(idSINPRegroupement_role) 
+
+# Calcule de la richesse (S), de l'indice de Shannon et de l'inverse de l'indice de Simpson pour chaque rôle des 2 protocoles
 S <- specnumber(role.comm) %>% as.data.frame() %>% rename(Richesse = ".")
 H <- diversity(role.comm, "shannon") %>% as.data.frame() %>% rename(Shannon = ".")
 invsimp <- diversity(role.comm, "inv") %>% as.data.frame() %>% rename(Inv.simp = ".")
@@ -310,6 +242,7 @@ div.ind <- cbind(S, H, invsimp) %>%
 div.ind$indices <- factor(div.ind$indices, 
                                  levels = c("Richesse", "Shannon", "Inv.simp"))
 
+# Boxplot des indices de diversité par rôle
 ggplot(div.ind ,
        aes(x=`Rôle`, y=`Valeur de l'indice de diversité`, fill=protocole))+
   geom_boxplot(alpha=0.7)+
@@ -319,8 +252,6 @@ ggplot(div.ind ,
                     labels = c("Transect", "Temps"),
                     breaks = c("TR", "TC"),
                     values = c("#bdbdbd", "#252525"))
-  
-  
 ```
 
 ## Courbe d accumulation par role
@@ -328,50 +259,64 @@ ggplot(div.ind ,
 Courbe d’accumulation par rôle (C, N, C+N ou H, B, H+B)
 
 ```{r}
+# on combine les jeux de communautés avec les informations sur les rôles
 role.comm.data <- role.comm %>% 
   rownames_to_column(var="idSINPRegroupement_role") %>%
   left_join(role.data) 
 
+# on sépare chaque jeu pour calculer l'accumulation de diversité avec specaccum par rôle pour chaque protocole plongée
+
+## -- Temps - rôle C
 TC.C <- role.comm.data %>% filter(role == "C" & protocole == "TC")%>%
   select(-role, -tech.tran.2, -protocole)
+## -- Temps - rôle N
 TC.N <- role.comm.data %>% filter(role == "N" & protocole == "TC")%>%
   select(-role, -tech.tran.2, -protocole)
+## -- Temps - rôle C+N
 TC.CN <- TC.forRole %>% filter(tech.tran.2 == "CC" & protocole == "TC") %>%
   select(-role, -tech.tran.2, -protocole, -idSINPRegroupement_role) %>%
   group_by(idSINPRegroupement_tran, nomCite) %>%
   summarize(ab.3=sum(ab.2)) %>%
   spread(nomCite, ab.3, fill=0)
-
+## -- Temps - rôle H
 TC.H <- role.comm.data %>% filter(role == "H" & protocole == "TC")%>%
   select(-role, -tech.tran.2, -protocole)
+## -- Temps - rôle B
 TC.B <- role.comm.data %>% filter(role == "B" & protocole == "TC")%>%
   select(-role, -tech.tran.2, -protocole)
+## -- Temps - rôle H+B
 TC.HB <- TC.forRole %>% filter(tech.tran.2 == "HB" & protocole == "TC") %>%
   select(-role, -tech.tran.2, -protocole, -idSINPRegroupement_role) %>%
   group_by(idSINPRegroupement_tran, nomCite) %>%
   summarize(ab.3=sum(ab.2)) %>%
   spread(nomCite, ab.3, fill=0)
 
+## -- Transect - rôle C
 TR.C <- role.comm.data %>% filter(role == "C" & protocole == "TR") %>%
   select(-role, -tech.tran.2, -protocole)
+## -- Transect - rôle N
 TR.N <- role.comm.data %>% filter(role == "N" & protocole == "TR")%>%
   select(-role, -tech.tran.2, -protocole)
+## -- Transect - rôle C+N
 TR.CN <- TR.forRole %>% filter(tech.tran.2 == "CC" & protocole == "TR") %>%
   select(-role, -tech.tran.2, -protocole, -idSINPRegroupement_role) %>%
   group_by(idSINPRegroupement_tran, nomCite) %>%
   summarize(ab.3=sum(ab.2)) %>%
   spread(nomCite, ab.3, fill=0)
-
+## -- Transect - rôle H
 TR.H <- role.comm.data %>% filter(role == "H" & protocole == "TR")%>%
   select(-role, -tech.tran.2, -protocole)
+## -- Transect - rôle B
 TR.B <- role.comm.data %>% filter(role == "B" & protocole == "TR")%>%
   select(-role, -tech.tran.2, -protocole)
+## -- Transect - rôle H+B
 TR.HB <- TR.forRole %>% filter(tech.tran.2 == "HB" & protocole == "TR") %>%
   select(-role, -tech.tran.2, -protocole, -idSINPRegroupement_role) %>%
   group_by(idSINPRegroupement_tran, nomCite) %>%
   summarize(ab.3=sum(ab.2)) %>%
   spread(nomCite, ab.3, fill=0)
 
+# on créee la liste rassemblant toutes les matrices de communautés
 df.for.spec.role <- list(TC.C=TC.C[,-1], TC.N=TC.N[,-1],
                     TC.CN=TC.CN[,-1],
                     TC.H=TC.H[,-1], TC.B=TC.B[,-1],
@@ -391,6 +336,7 @@ make.spec <- function(df){
   return(curve.df)
 }
 
+# on calcule specaccum pour chaque matrice de communauté
 specc.all <- map_dfr(df.for.spec.role, make.spec, .id="var")
 specc.all.2 <- specc.all %>%
   separate(var, c("prot", "role")) %>%
@@ -402,7 +348,7 @@ specc.all.2 <- specc.all %>%
 specc.all.2$role <- factor(specc.all.2$role, 
                                  levels = c("CN", "C", "N",
                                             "HB", "H", "B"))
-
+# on plot la curve d'accumulation
 ggplot(data=specc.all.2, aes(x=Sites, y=Richness, color=role)) +
   geom_point(alpha=0.8) +
   geom_line(alpha=0.8) +
@@ -527,7 +473,9 @@ ggplot(prot.forRole %>% filter(tech.tran.2=="HB"),
 
 ```
 
-## Comparaison des rôles - classe de taille par espèce
+## Comparaison des rôles - classe de taille par espèce 
+
+! pas fini
 
 Pourcentage des transects dans lesquels les  **classes de taille des individus** pour chacune des espèces ont été observés par 1 des 2 rôles ou par les 2 rôles  
 
@@ -757,6 +705,8 @@ ggplot(prot.forRole.size %>% filter(tech.tran.2=="HB"),
 ```
 
 ## Focus especes cryptobenthiques - rôle C1/C4
+
+! pas fini
 
 --> à creuser, voir aussi en fonction de la taille 
 
@@ -1135,30 +1085,14 @@ mtext("Baselga decomposition of Sørensen dissimilarity coefficients - Abundance
 #dev.off()
 ```
 
-## Coinertie
-### P/A
 
-```{r}
-
-```
-
-### Abondance
-
-```{r}
-
-```
-
-
-# Section
+# Section - Longueur de transect
 ## Courbe d'accumulation
-x --> nb transect par site
-y --> div spe
-cree un jeu par area avec pour chaque site la diversité observée accumulée en ajoutant les transects. les transects seront site 1 _ 1 troncon, site 1 _ 2 troncons, site 1 _3 troncons
 
-
-
+  + En sélectionnant aléatoirement une des 3 sections de 10mètres, l'un des duo de sections pour avoir 20m et le trio de section pour 30mètres
+  
 ```{r}
-TR.10m <- TR.sec %>% 
+TR.10m.alea <- TR.sec %>% 
   select(nomCite, abondance.sec.norm,
          idSINPRegroupement_tran, no_section) %>%
   # randomly select one section only
@@ -1168,23 +1102,7 @@ TR.10m <- TR.sec %>%
   spread(nomCite, abondance.sec.norm, fill=0) %>%
   select(-No_species)
   
-TR.20m <- TR.sec %>% 
-  select(nomCite, abondance.sec.norm,
-         idSINPRegroupement_tran, no_section) %>%
-  spread(no_section, abondance.sec.norm, fill = 0) %>%
-  mutate(s1_s2 = case_when(s1 > 0 | s2 > 0 ~ s1+s2)) %>%
-  mutate(s1_s3 = case_when(s1 > 0 | s3 > 0 ~ s1+s3 )) %>%
-  mutate(s2_s3 = case_when(s2 > 0 | s3 > 0 ~ s2+s3)) %>%
-  select(-s1, -s2, -s3) %>%
-  gather("duo_sec", "abondance", -idSINPRegroupement_tran, -nomCite) %>%
-  filter(abondance > 0) %>%
-  # randomly select one section only
-  group_by(idSINPRegroupement_tran) %>%
-  sample_n(1) %>%
-  unite(id_tran_sec, c(idSINPRegroupement_tran, duo_sec)) %>%
-  spread(nomCite, abondance, fill=0)
-
-TR.20m.2 <- TR.sec %>% 
+TR.20m.alea <- TR.sec %>% 
   select(nomCite, abondance.sec.norm,
          idSINPRegroupement_tran, no_section) %>%
   # randomly select two sections only
@@ -1196,8 +1114,7 @@ TR.20m.2 <- TR.sec %>%
   spread(nomCite, sum.ab, fill=0) %>%
   select(-No_species)
 
-TR.30m <- TR.sec %>% 
-  #filter(nomCite != "No_species") %>%
+TR.30m.alea <- TR.sec %>% 
   group_by(nomCite,
          idSINPRegroupement_tran) %>%
   summarize(sum.ab = sum(abondance.sec.norm)) %>%
@@ -1205,30 +1122,17 @@ TR.30m <- TR.sec %>%
   select(-No_species)
   
 
-df.for.spec.sec <- list(TR.10m=TR.10m[,-1],
-                        #TR.20m=TR.20m[,-1],
-                        TR.20m.2=TR.20m[,-1],
-                        TR.30m=TR.30m[,-1])
+df.for.spec.sec.alea <- list(TR.10m=TR.10m.alea[,-1],
+                             TR.20m.2=TR.20m.alea[,-1],
+                             TR.30m=TR.30m.alea[,-1])
 
-make.spec <- function(df){
-  #calc species accumulation curve for each role 
-  curve = specaccum(df)
-  # and make a df for ggplot
-  curve.df <- data.frame(Sites=curve$sites, Richness=curve$richness,
-                         SD=curve$sd)
+specc.all.sec <- map_dfr(df.for.spec.sec.alea, make.spec, .id="var")
 
-  return(curve.df)
-}
-
-specc.all.role <- map_dfr(df.for.spec.sec, make.spec, .id="var")
-
-p1 <- ggplot(data=specc.all.role, aes(x=Sites, y=Richness, color=var)) +
+ggplot(data=specc.all.sec, aes(x=Sites, y=Richness, color=var)) +
   geom_point(alpha=0.8) +
   geom_line(alpha=0.8) +
-  geom_ribbon(data=specc.all.role ,aes(x=Sites,
+  geom_ribbon(data=specc.all.sec, aes(x=Sites,
     ymin=(Richness-2*SD),ymax=(Richness+2*SD), fill=var),alpha=0.2, inherit.aes = FALSE) +
-  #facet_zoom(x=Sites<=250)+
-  #facet_wrap(vars(prot, tech.tran.2), scales = "free")+
   theme_bw() +
   scale_fill_manual(name = "Longueur du tronçon", 
                     labels = c("10m", "20m", "30m"),
@@ -1242,49 +1146,151 @@ p1 <- ggplot(data=specc.all.role, aes(x=Sites, y=Richness, color=var)) +
   ylab("Richesse")+
   theme(legend.position = "bottom")
 
-p.random <- p1
-p.all <- p1
-
-ggarrange(p.all, p.random, common.legend = TRUE, nrow=2)
 ```
 
++ Par zone et année
 
-```{r eval=F}
-df <- TR.sec %>% 
-  select(nomCite, abondance.sec.norm, no_section, code_site, area, saison) %>%
-  filter(year=="2019" & zone="Mer d Iroise") %>%
-  unite(site_tron , c(code_site, no_section)) 
+Ex. de Mer d'Iroise et Tregor
 
-df.1tron <- x %>% 
-  mutate(pa.1tronc = )
+```{r}
+acc.year.area <- function(year.chosen, area.chosen){
+  
+  TR.sec.filtered <- TR.sec %>%
+    filter(year == year.chosen & area == area.chosen) 
+  
+  TR.10m.alea <- TR.sec.filtered %>% 
+    select(nomCite, abondance.sec.norm,
+         idSINPRegroupement_tran, no_section) %>%
+    # randomly select one section only
+    group_by(idSINPRegroupement_tran) %>%
+    sample_n(1) %>%
+    unite(id_tran_sec, c(idSINPRegroupement_tran, no_section)) %>%
+    spread(nomCite, abondance.sec.norm, fill=0) %>%
+    select(-No_species)
+  
+  TR.20m.alea <- TR.sec.filtered %>% 
+    select(nomCite, abondance.sec.norm,
+         idSINPRegroupement_tran, no_section) %>%
+    # randomly select two sections only
+    group_by(idSINPRegroupement_tran) %>%
+    sample_n(2) %>%
+    group_by(nomCite,
+         idSINPRegroupement_tran) %>%
+    summarize(sum.ab = sum(abondance.sec.norm)) %>%
+    spread(nomCite, sum.ab, fill=0) %>%
+    select(-No_species)
 
-uvc.24h.taxa.tmp <- uvc.24h.comm %>%
-  column_to_rownames(var="sample_name")
-uvc.24h.taxa.t <- t(uvc.24h.taxa.tmp)
+  TR.30m.alea <- TR.sec.filtered %>% 
+    group_by(nomCite,
+         idSINPRegroupement_tran) %>%
+    summarize(sum.ab = sum(abondance.sec.norm)) %>%
+    spread(nomCite, sum.ab, fill=0) %>%
+    select(-No_species)
+  
 
-uvc.context.taxa.tmp <- uvc.context.OK.comm %>%
-  column_to_rownames(var="sample_name")
-uvc.context.taxa.t <- t(uvc.context.taxa.tmp)
+  df.for.spec.sec.alea <- list(TR.10m=TR.10m.alea[,-1],
+                             TR.20m.2=TR.20m.alea[,-1],
+                             TR.30m=TR.30m.alea[,-1])
 
-data.list <- list(uvc.24h.taxa.t, uvc.context.taxa.t)
+  specc.sec <- map_dfr(df.for.spec.sec.alea, make.spec, .id="var")
 
-names(data.list) <- c("uvc.24h", "uvc.context")
+return(specc.sec)
+}
 
-inext.uvc <- iNEXT(data.list, q=0, datatype="incidence_raw")
+# Tregor - 2019 et 2020
+specc.role.TRE.2019 <- acc.year.area(year.chosen = "2019", area.chosen = "Tregor")
 
-raref_uvc <- ggiNEXT(inext.uvc, color.var="site", type=1)  +
-  labs(title="UVC") +
-  scale_fill_grey(start = 0, end = .4) +
-  scale_colour_grey(start = .3, end = .8) +
+ggplot(data=specc.role.TRE.2019, aes(x=Sites, y=Richness, color=var)) +
+  geom_point(alpha=0.8) +
+  geom_line(alpha=0.8) +
+  geom_ribbon(data=specc.role.TRE.2019 ,aes(x=Sites,
+    ymin=(Richness-2*SD),ymax=(Richness+2*SD), fill=var),alpha=0.2, inherit.aes = FALSE) +
   theme_bw() +
-  theme(axis.text.x = element_text(size=18), 
-        axis.text.y = element_text(size=18), 
-        axis.title.x = element_text(size=18, face="bold"),
-        axis.title.y = element_text(size=18, face="bold"),
-        title = element_text(size=16, face="bold")) 
-raref_uvc  
+  scale_fill_manual(name = "Longueur du tronçon", 
+                    labels = c("10m", "20m", "30m"),
+                    breaks = c("TR.10m", "TR.20m.2", "TR.30m") ,
+                    values=c("#8dd3c7", "#b3de69", "#bebada"))+
+  scale_color_manual(name = "Longueur du tronçon", 
+                    labels = c("10m", "20m", "30m"),
+                    breaks = c("TR.10m", "TR.20m.2", "TR.30m") ,
+                    values=c("#8dd3c7", "#b3de69", "#bebada"))+
+  xlab("Nombre d'unité d'échantillonnage")+
+  ylab("Richesse")+
+  theme(legend.position = "bottom")+
+  ggtitle("Tregor 2019")
+
+specc.role.TRE.2020 <- acc.year.area(year.chosen = "2020", area.chosen = "Tregor")
+
+ggplot(data=specc.role.TRE.2020, aes(x=Sites, y=Richness, color=var)) +
+  geom_point(alpha=0.8) +
+  geom_line(alpha=0.8) +
+  geom_ribbon(data=specc.role.TRE.2020 ,aes(x=Sites,
+    ymin=(Richness-2*SD),ymax=(Richness+2*SD), fill=var),alpha=0.2, inherit.aes = FALSE) +
+  theme_bw() +
+  scale_fill_manual(name = "Longueur du tronçon", 
+                    labels = c("10m", "20m", "30m"),
+                    breaks = c("TR.10m", "TR.20m.2", "TR.30m") ,
+                    values=c("#8dd3c7", "#b3de69", "#bebada"))+
+  scale_color_manual(name = "Longueur du tronçon", 
+                    labels = c("10m", "20m", "30m"),
+                    breaks = c("TR.10m", "TR.20m.2", "TR.30m") ,
+                    values=c("#8dd3c7", "#b3de69", "#bebada"))+
+  xlab("Nombre d'unité d'échantillonnage")+
+  ylab("Richesse")+
+  theme(legend.position = "bottom")+
+  ggtitle("Tregor 2020")
+
+# Mer d'Iroise 2019 et 2020
+specc.role.IROI.2019 <- acc.year.area(year.chosen = "2019", area.chosen = "Mer d Iroise")
+
+ggplot(data=specc.role.IROI.2019, aes(x=Sites, y=Richness, color=var)) +
+  geom_point(alpha=0.8) +
+  geom_line(alpha=0.8) +
+  geom_ribbon(data=specc.role.IROI.2019 ,aes(x=Sites,
+    ymin=(Richness-2*SD),ymax=(Richness+2*SD), fill=var),alpha=0.2, inherit.aes = FALSE) +
+  theme_bw() +
+  scale_fill_manual(name = "Longueur du tronçon", 
+                    labels = c("10m", "20m", "30m"),
+                    breaks = c("TR.10m", "TR.20m.2", "TR.30m") ,
+                    values=c("#8dd3c7", "#b3de69", "#bebada"))+
+  scale_color_manual(name = "Longueur du tronçon", 
+                    labels = c("10m", "20m", "30m"),
+                    breaks = c("TR.10m", "TR.20m.2", "TR.30m") ,
+                    values=c("#8dd3c7", "#b3de69", "#bebada"))+
+  xlab("Nombre d'unité d'échantillonnage")+
+  ylab("Richesse")+
+  theme(legend.position = "bottom")+
+  ggtitle("Mer d'Iroise 2019")
+
+specc.role.IROI.2020 <- acc.year.area(year.chosen = "2020", area.chosen = "Mer d Iroise")
+
+ggplot(data=specc.role.IROI.2020, aes(x=Sites, y=Richness, color=var)) +
+  geom_point(alpha=0.8) +
+  geom_line(alpha=0.8) +
+  geom_ribbon(data=specc.role.IROI.2020 ,aes(x=Sites,
+    ymin=(Richness-2*SD),ymax=(Richness+2*SD), fill=var),alpha=0.2, inherit.aes = FALSE) +
+  theme_bw() +
+  scale_fill_manual(name = "Longueur du tronçon", 
+                    labels = c("10m", "20m", "30m"),
+                    breaks = c("TR.10m", "TR.20m.2", "TR.30m") ,
+                    values=c("#8dd3c7", "#b3de69", "#bebada"))+
+  scale_color_manual(name = "Longueur du tronçon", 
+                    labels = c("10m", "20m", "30m"),
+                    breaks = c("TR.10m", "TR.20m.2", "TR.30m") ,
+                    values=c("#8dd3c7", "#b3de69", "#bebada"))+
+  xlab("Nombre d'unité d'échantillonnage")+
+  ylab("Richesse")+
+  theme(legend.position = "bottom")+
+  ggtitle("Mer d'Iroise 2020")
 ```
 
+# NB
+
+Améliorer la reproductibilité et lisibilité
+
+Compléter les parties non annotées
+
+Mettre la fonction pour faire les courbes d'accumulation dans un fichier R
 
 # Sessioninfo
 
