@@ -1,0 +1,1579 @@
+---
+title: "Pocoroch : Comparaison des protocoles de comptage"
+author: "Anaïs Rey"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  rmdformats::readthedown:
+    code_folding: hide
+    gallery: yes
+    highlight: tango
+    lightbox: yes
+    thumbnails: no
+    toc_depth: 6
+    number_sections: true
+    css: styles.css # if we want to save the styles in a css and call it inside of having it inside the case as here.
+    #https://github.com/juba/rmdformats/blob/master/inst/templates/readthedown/readthedown.css
+    #https://stackoverflow.com/questions/42935320/how-to-change-the-color-theme-on-rmdformats-readthedown
+editor_options:
+  chunk_output_type: console
+---
+
+<script>
+   $(document).ready(function() {
+     $head = $('#header');
+     $head.prepend('<img src=\"logo_rmd_pocoroch.png\" style=\"float: right;width: 150px;\"/>')
+   });
+</script>
+
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, eval = TRUE, cache = FALSE, fig.width=12, fig.height=8)
+```
+
+**But du script: **
+
+  + X
+
+# Load packages {.tabset}
+## Plot
+```{r}
+library(ggplot2)
+library(knitr)
+library(ggpubr)
+library(ggrepel)
+```
+
+## Formatting
+```{r}
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(purrr)
+#library(stringr)
+library(forcats)
+#library(reshape2)
+```
+
+## Ecology 
+```{r}
+library(vegan)
+#library(adespatial)
+library(ade4)
+```
+
+# Import data
+
+```{r}
+# -- normalized at the transect level 
+# Temps 
+load(file = "./Data/TC_agg_sp.RData")
+load(file = "./Data/TC_agg_sp_size.RData")
+
+# Transect 
+load(file = "./Data/TR_agg_sp.RData")
+load(file = "./Data/TR_agg_sp_size_PMG.RData")
+load(file = "./Data/TR_agg_sp_size_biom.RData")
+
+# Rename files for easy reading
+TC.sp <- TC.agg.sp
+TC.sp.size <- TC.agg.sp.size
+
+TR.sp <- TR.agg.sp
+TR.sp.size <- TR.agg.sp.size.PMG
+TR.sp.biom <- TR.agg.sp.size.biom
+
+# Remove _ between genus and species to match between dataset
+TR.sp <- TR.sp %>%
+  mutate(nomCite = gsub("_", " ", nomCite)) %>%
+  mutate(nomCite = gsub("No species", "No_species", nomCite))
+
+TR.sp.size <- TR.sp.size %>%
+  mutate(nomCite = gsub("_", " ", nomCite)) %>%
+  mutate(nomCite = gsub("No species", "No_species", nomCite))
+
+TR.sp.biom <- TR.sp.biom %>%
+  mutate(nomCite = gsub("_", " ", nomCite)) %>%
+  mutate(nomCite = gsub("No species", "No_species", nomCite))
+```
+
+# Make community data
+
+```{r}
+make.com.tran <- function(df, col.ab){
+  
+  df.comm <- df %>%
+    select(idSINPRegroupement_tran, nomCite, col.ab) %>%
+    spread(nomCite, col.ab, fill=0) %>%
+    # remove column no_species
+    # ! some samples in row will have 0 in all species : remove them or not ? 
+    select(-No_species)
+  
+  return(df.comm)
+}
+
+TC.sp.com <- make.com.tran(df = TC.sp, col.ab = "max.ab.sp")
+TC.data <- TC.sp %>%
+  select(idSINPRegroupement_imm, 
+         idSINPRegroupement_tran, code_site, site, area, 
+         habitat_type, exploit_LH, cote_large,
+         year, day, month, Date, saison,
+         no_transect, prof_cible_corr.FINAL, 
+         tech.tran.2) %>%
+  distinct()
+
+TR.sp.com <- make.com.tran(df = TR.sp, col.ab = "abondance.tran.norm")
+TR.data <- TR.sp %>%
+  select(idSINPRegroupement_imm, 
+         idSINPRegroupement_tran, code_site, site, area, 
+         habitat_type, exploit_LH, cote_large,
+         year, day, month, Date, saison,
+         no_transect, prof_cible_corr.FINAL, 
+         tech.tran.2) %>%
+  distinct()
+```
+
+# Create dataset with shared sampling
+
+Here we keep only replicates of transects sampled by the 2 protocols (transect and time-count) during the same year, season and site.
+!! du coup en fonction des transects gardés aléatoirement, les patrons peuvent changer - à discuter avec Olivier si ce ne serait pas mieux de faire le tirage aléatoire du nombre de fois qu'il y a de possibilités de choix de transects et de moyenner les abondances - quand il y a plusieurs réplicats de profondeur on fait comment ? 
+
+```{r}
+# Count how many transects were done during the year+season+site
+## Time-Count
+tmp.TC <- TC.data %>%
+  distinct(idSINPRegroupement_tran, 
+           area, code_site, saison, prof_cible_corr.FINAL, year) %>%
+  group_by(area, code_site, saison, prof_cible_corr.FINAL, year) %>%
+  tally() %>%
+  # nb of transect for Time count
+  rename(n.TC=n) %>%
+  ungroup()
+
+## Transect
+tmp.TR <- TR.data %>%
+  mutate(prof_cible_corr.FINAL = as.numeric(as.vector(prof_cible_corr.FINAL))) %>%
+  distinct(idSINPRegroupement_tran,
+           area, code_site, saison, prof_cible_corr.FINAL, year) %>%
+  group_by(area, code_site, saison, prof_cible_corr.FINAL, year) %>%
+  tally() %>%
+  # nb of transect for Time count
+  rename(n.TR=n) %>%
+  ungroup()
+
+# Identify shared transect
+tran.common <- inner_join(tmp.TC, tmp.TR) %>% 
+  unite(new.data, c(code_site, saison, prof_cible_corr.FINAL, year)) 
+
+tran.common.pull <- tran.common %>%  pull(new.data)
+
+# Select only shared transect and keep only the minimum number of replicates sampled by one of the 2 protocols
+
+TC.data.common.tmp <- TC.data %>%
+  unite(new.data, c(code_site, saison, prof_cible_corr.FINAL, year), remove =F) %>%
+  filter(new.data %in% tran.common.pull) %>%
+  left_join(tran.common) %>%
+  rowwise() %>%
+  mutate(min.tran = min(n.TR, n.TC)) %>%
+  group_by(min.tran) %>%
+  group_split(., .keep=TRUE)
+
+TR.data.common.tmp <- TR.data %>%
+  unite(new.data, c(code_site, saison, prof_cible_corr.FINAL, year), remove =F) %>%
+  filter(new.data %in% tran.common.pull) %>%
+  left_join(tran.common) %>%
+  rowwise() %>%
+  mutate(min.tran = min(n.TR, n.TC)) %>%
+  group_by(min.tran) %>%
+  group_split(., .keep=TRUE)
+
+sample_n.not.fixed.size <- function(df){
+  
+  size.chosen <- unique(df$min.tran)
+  
+  df.sampled <- df %>% 
+    group_by(new.data) %>%
+    sample_n(size.chosen) %>%
+    mutate(n.tran.sampled = n()) %>% 
+    ungroup()
+  
+  return(df.sampled)
+} 
+
+TC.data.common <- map_dfr(TC.data.common.tmp, sample_n.not.fixed.size) 
+TR.data.common <- map_dfr(TR.data.common.tmp, sample_n.not.fixed.size) 
+
+# Some checking
+all(TC.data.common$min.tran == TC.data.common$n.tran.sampled)
+all(TR.data.common$min.tran == TR.data.common$n.tran.sampled)
+
+dim(TC.data.common)==dim(TR.data.common)
+
+# Apply the filtering to the community matrices
+## Time-Count
+TC.sp.com.common <- TC.sp.com %>% 
+  filter(idSINPRegroupement_tran %in% TC.data.common$idSINPRegroupement_tran)
+# Remove species with 0 observations
+colnames(TC.sp.com.common[-1][colSums(TC.sp.com.common[-1]) == 0])
+
+TC.sp.com.common.ok <- TC.sp.com.common %>%
+  select(idSINPRegroupement_tran, 
+         !colnames(TC.sp.com.common[-1][colSums(TC.sp.com.common[-1]) == 0]))
+
+## Transect
+TR.sp.com.common <- TR.sp.com %>% 
+  filter(idSINPRegroupement_tran %in% TR.data.common$idSINPRegroupement_tran)
+# Remove species with 0 observations
+colnames(TR.sp.com.common[-1][colSums(TR.sp.com.common[-1]) == 0])
+
+TR.sp.com.common.ok <- TR.sp.com.common %>%
+  select(idSINPRegroupement_tran, 
+         !colnames(TR.sp.com.common[-1][colSums(TR.sp.com.common[-1]) == 0]))
+```
+
+# Create subset of dataset
+
+  + Make the function
+  
+```{r}
+make.subset <- function(data, com, year.chosen, area.chosen){
+  
+  # Dataframe with info on sampling
+  data.filtered <- data %>%
+    filter(year %in% year.chosen)
+  
+  if(!is.null(area.chosen)){
+    
+    data.filtered <- data.filtered %>%
+      filter(area %in% area.chosen)
+    
+  }
+  
+  # Associated Community matrice 
+  com.filtered <- com %>% 
+    filter(idSINPRegroupement_tran %in% data.filtered$idSINPRegroupement_tran)
+  
+  # Remove species with 0 observations
+  com.filtered.ok <- com.filtered %>%
+    select(idSINPRegroupement_tran, 
+         !colnames(com.filtered[-1][colSums(com.filtered[-1]) == 0]))
+  
+  com.data <- list(data = data.filtered, com = com.filtered.ok)
+  
+  return(com.data)
+}
+```
+
+  + Create subset dataset
+  
+```{r}
+### ---- 1 year - 1 area
+
+# 2019 - Mer Iroise
+TC.IROI.19 <- make.subset(data = TC.data.common, com = TC.sp.com.common.ok, 
+                          year.chosen = "2019", 
+                          area.chosen = "Mer d Iroise")
+
+TR.IROI.19 <- make.subset(data = TR.data.common, com = TR.sp.com.common.ok, 
+                          year.chosen = "2019", 
+                          area.chosen = "Mer d Iroise")
+
+# 2019 - Cote d Emeraude
+TC.EMER.19 <- make.subset(data = TC.data.common, com = TC.sp.com.common.ok, 
+                          year.chosen = "2019", 
+                          area.chosen = "Cote d Emeraude")
+
+TR.EMER.19 <- make.subset(data = TR.data.common, com = TR.sp.com.common.ok, 
+                          year.chosen = "2019", 
+                          area.chosen = "Cote d Emeraude")
+
+# 2019 - Tregor
+TC.TREG.19 <- make.subset(data = TC.data.common, com = TC.sp.com.common.ok, 
+                          year.chosen = "2019", 
+                          area.chosen = "Tregor")
+
+TR.TREG.19 <- make.subset(data = TR.data.common, com = TR.sp.com.common.ok, 
+                          year.chosen = "2019", 
+                          area.chosen = "Tregor")
+
+# 2019 - Mer Iroise
+TC.IROI.20 <- make.subset(data = TC.data.common, com = TC.sp.com.common.ok, 
+                          year.chosen = "2020", 
+                          area.chosen = "Mer d Iroise")
+
+TR.IROI.20 <- make.subset(data = TR.data.common, com = TR.sp.com.common.ok, 
+                          year.chosen = "2020", 
+                          area.chosen = "Mer d Iroise")
+
+
+### ---- 1 year - all areas
+
+# 2019 - all areas
+TC.ALL.19 <- make.subset(data = TC.data.common, com = TC.sp.com.common.ok, 
+                          year.chosen = "2019", 
+                          area.chosen = NULL)
+
+TR.ALL.19 <- make.subset(data = TR.data.common, com = TR.sp.com.common.ok, 
+                          year.chosen = "2019", 
+                          area.chosen = NULL)
+
+### ---- 2 years - 1 area
+
+# 2019-2020 - Mer Iroise
+
+TC.IROI.19.20 <- make.subset(data = TC.data.common, com = TC.sp.com.common.ok, 
+                          year.chosen = c("2019", "2020"),
+                          area.chosen = "Mer d Iroise")
+
+TR.IROI.19.20 <- make.subset(data = TR.data.common, com = TR.sp.com.common.ok, 
+                          year.chosen = c("2019", "2020"),
+                          area.chosen = "Mer d Iroise")
+
+### ---- 2 years - all areas
+
+# 2019-2020 - all areas
+TC.ALL.19.20 <- make.subset(data = TC.data.common, com = TC.sp.com.common.ok, 
+                          year.chosen = c("2019", "2020"),
+                          area.chosen = NULL)
+
+TR.ALL.19.20 <- make.subset(data = TR.data.common, com = TR.sp.com.common.ok, 
+                          year.chosen = c("2019", "2020"),
+                          area.chosen = NULL)
+  
+
+```
+
+
+# Accumulation curve
+
+```{r}
+subsets.all <- list(#1 year - 1 area
+                    TR_IROI.19=TR.IROI.19$com[,-1],
+                    TC_IROI.19=TC.IROI.19$com[,-1],
+                    TR_EMER.19=TR.EMER.19$com[,-1],
+                    TC_EMER.19=TC.EMER.19$com[,-1],
+                    TR_TREG.19=TR.TREG.19$com[,-1],
+                    TC_TREG.19=TC.TREG.19$com[,-1],
+                    TR_IROI.20=TR.IROI.20$com[,-1],
+                    TC_IROI.20=TC.IROI.20$com[,-1],
+                    #1 year - all areas
+                    TR_ALL.19=TR.ALL.19$com[,-1],
+                    TC_ALL.19=TC.ALL.19$com[,-1],
+                    # 2019-2020 - Mer Iroise
+                    TR_IROI.19.20=TR.IROI.19.20$com[,-1],
+                    TC_IROI.19.20=TC.IROI.19.20$com[,-1],
+                    # 2019-2020 - all areas
+                    TR_ALL.19.20=TR.ALL.19.20$com[,-1],
+                    TC_ALL.19.20=TC.ALL.19.20$com[,-1])
+
+make.spec <- function(df){
+  #calc species accumulation curve for each role 
+  curve = vegan::specaccum(df)
+  # and make a df for ggplot
+  curve.df <- data.frame(Sites=curve$sites, Richness=curve$richness,
+                         SD=curve$sd)
+
+  return(curve.df)
+}
+
+specc.prot <- map_dfr(subsets.all, make.spec, .id="var") %>%
+  separate(var, c("prot", "filter"), remove = F, sep= "_")
+
+
+ggplot(data=specc.prot, aes(x=Sites, y=Richness, color=prot)) +
+  geom_point(alpha=0.8) +
+  geom_line(alpha=0.8) +
+  # confidence interval CI 95% - 1.96*SD
+  geom_ribbon(data=specc.prot, aes(x=Sites,
+    ymin=(Richness-2*SD),ymax=(Richness+2*SD), fill=prot),alpha=0.2, inherit.aes = FALSE) +
+  facet_wrap(vars(filter), scales = "free")+
+  theme_bw() +
+  theme_bw()+
+  scale_fill_manual(name = "Protocole", 
+                    labels = c("Temps", "Transect"),
+                    breaks = c("TC", "TR") ,
+                    values=c("#E69F00", "#1b9e77"))+
+  scale_color_manual(name = "Protocole", 
+                    labels = c("Temps", "Transect"),
+                    breaks = c("TC", "TR") ,
+                    values=c("#E69F00", "#1b9e77"))+
+  ggtitle("2019-2020")+
+  xlab("Nombre de transect")+
+  ylab("Richesse")+
+  theme(legend.position = "bottom")
+```
+
+
+# Rank-abundance curves
+## Abundance based 
+
+Dataset used : 2019-2020 
+
+```{r}
+# --- Separate dataset into circa and infra littoral
+## Time-Count
+### InfraL
+TC.infra.data <- TC.ALL.19.20$data %>%
+  filter(tech.tran.2=="HB") 
+
+TC.infra.comm <- TC.ALL.19.20$com %>%
+  filter(idSINPRegroupement_tran %in% TC.infra.data$idSINPRegroupement_tran)
+
+### CircaL
+TC.circa.data <- TC.ALL.19.20$data %>%
+  filter(tech.tran.2=="CC") 
+
+TC.circa.comm <- TC.ALL.19.20$com %>%
+  filter(idSINPRegroupement_tran %in% TC.circa.data$idSINPRegroupement_tran)
+
+## Transect
+### InfraL
+TR.infra.data <- TR.ALL.19.20$data %>%
+  filter(tech.tran.2=="HB") 
+
+TR.infra.comm <- TR.ALL.19.20$com %>%
+  filter(idSINPRegroupement_tran %in% TR.infra.data$idSINPRegroupement_tran)
+
+### CircaL
+TR.circa.data <- TR.ALL.19.20$data %>%
+  filter(tech.tran.2=="CC") 
+
+TR.circa.comm <- TR.ALL.19.20$com %>%
+  filter(idSINPRegroupement_tran %in% TR.circa.data$idSINPRegroupement_tran)
+
+# --- Make rank-abundance curves
+
+make.ab.curve <- function(df){
+  
+  abund <- sort(apply(df[,-1], 2, sum), decreasing = T)
+  
+  sum(abund)
+  
+  rel.abund <- sort((abund / sum(abund)), decreasing = T)
+  
+  rel.abund.df <- rel.abund %>%
+   as.data.frame() %>%
+   rename(rel.ab = ".") %>%
+   rownames_to_column(var="nomCite") %>%
+   mutate(nomCite = fct_reorder(nomCite, desc(rel.ab))) 
+  
+  return(rel.abund.df)
+}
+
+rel.ab.TC.circa <- make.ab.curve(df=TC.circa.comm)
+rel.ab.TC.infra <- make.ab.curve(df=TC.infra.comm)
+
+rel.ab.TR.circa <- make.ab.curve(df=TR.circa.comm)
+rel.ab.TR.infra <- make.ab.curve(df=TR.infra.comm)
+
+rel.ab.TR <- make.ab.curve(df=TR.ALL.19.20$com)
+rel.ab.TC <- make.ab.curve(df=TC.ALL.19.20$com)
+
+# Make rank-abundance curves
+p1 <- ggplot(rel.ab.TC.circa, aes(x=nomCite, y=rel.ab, label=nomCite)) +
+  geom_segment( aes(x=nomCite, xend=nomCite, y=0, yend=rel.ab), color="grey") +
+  geom_text_repel(data=rel.ab.TC.circa %>% slice(1:6),
+            aes(x=nomCite, y=rel.ab, label=nomCite))+
+  geom_point( color="orange", size=4) +
+  theme_light() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  xlab("Rang des espèces") +
+  ylab("Abondance relative")+
+  ggtitle("Temps - Circalittoral")
+
+p2 <- ggplot(rel.ab.TC.infra, aes(x=nomCite, y=rel.ab, label=nomCite)) +
+  geom_segment( aes(x=nomCite, xend=nomCite, y=0, yend=rel.ab), color="grey") +
+  geom_text_repel(data=rel.ab.TC.infra %>% slice(1:6),
+            aes(x=nomCite, y=rel.ab, label=nomCite))+
+  geom_point( color="orange", size=4) +
+  theme_light() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  xlab("Rang des espèces") +
+  ylab("Abondance relative")+
+  ggtitle("Temps - Infralittoral")
+
+p3 <- ggplot(rel.ab.TR.circa, aes(x=nomCite, y=rel.ab, label=nomCite)) +
+  geom_segment( aes(x=nomCite, xend=nomCite, y=0, yend=rel.ab), color="grey") +
+  geom_text_repel(data=rel.ab.TR.circa %>% slice(1:6),
+            aes(x=nomCite, y=rel.ab, label=nomCite))+
+  geom_point( color="orange", size=4) +
+  theme_light() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  xlab("Rang des espèces") +
+  ylab("Abondance relative")+
+  ggtitle("Transect - Circalittoral")
+
+p4 <- ggplot(rel.ab.TR.infra, aes(x=nomCite, y=rel.ab, label=nomCite)) +
+  geom_segment( aes(x=nomCite, xend=nomCite, y=0, yend=rel.ab), color="grey") +
+  geom_text_repel(data=rel.ab.TR.infra %>% slice(1:6),
+            aes(x=nomCite, y=rel.ab, label=nomCite))+
+  geom_point( color="orange", size=4) +
+  theme_light() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  xlab("Rang des espèces") +
+  ylab("Abondance relative")+
+  ggtitle("Transect - Infralittoral")
+
+ggarrange(p1, p3, p2, p4, nrow=2, ncol=2, common.legend = TRUE)
+
+case.TR <- TR.infra.comm[,c(1,2,14)]  %>%
+  gather("nomCite", "abundance", -idSINPRegroupement_tran) %>%
+  left_join(TR.infra.data) %>%
+  group_by(area, site, saison, year, nomCite) %>% 
+  summarize(sum.TR = sum(abundance)) %>%
+  mutate(nomCite = gsub("_", " ", nomCite))
+
+case.TC <- TC.infra.comm[,c(1,2,13)]  %>%
+  gather("nomCite", "abundance", -idSINPRegroupement_tran) %>%
+  left_join(TC.infra.data) %>%
+  group_by(area, site, saison, year, nomCite) %>% 
+  summarize(sum.TC = sum(abundance))
+
+# Transect vs TimeCount
+
+p5 <- ggplot(rel.ab.TC, aes(x=nomCite, y=rel.ab, label=nomCite)) +
+  geom_segment( aes(x=nomCite, xend=nomCite, y=0, yend=rel.ab), color="grey") +
+  geom_text_repel(data=rel.ab.TC %>% slice(1:8),
+            aes(x=nomCite, y=rel.ab, label=nomCite))+
+  geom_point( color="orange", size=4) +
+  theme_light() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  xlab("Rang des espèces") +
+  ylab("Abondance relative")+
+  ggtitle("Temps")
+
+p6 <- ggplot(rel.ab.TR, aes(x=nomCite, y=rel.ab, label=nomCite)) +
+  geom_segment( aes(x=nomCite, xend=nomCite, y=0, yend=rel.ab), color="grey") +
+  geom_text_repel(data=rel.ab.TR %>% slice(1:8),
+            aes(x=nomCite, y=rel.ab, label=nomCite))+
+  geom_point( color="orange", size=4) +
+  theme_light() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  xlab("Rang des espèces") +
+  ylab("Abondance relative")+
+  ggtitle("Transect")
+
+ggarrange(p5, p6, ncol=2, common.legend = TRUE)
+```
+
+
+```{r}
+# Frequency based
+# freq <- sort(apply(TC.sp.com[,-1]>0, 2, sum), decreasing = T)
+```
+
+# Pyramid plot - freq vs abundance
+
+```{r}
+nb.site <-  TR.ALL.19.20$com %>%
+  gather("nomCite", "abondance", -idSINPRegroupement_tran) %>%
+  left_join(TR.ALL.19.20$data) %>%
+  as.data.frame() %>%
+  distinct(area, code_site, year, saison) %>%
+  dim()
+
+summary.TC <- TC.ALL.19.20$com %>%
+  gather("nomCite", "abondance", -idSINPRegroupement_tran) %>%
+  left_join(TC.ALL.19.20$data) %>%
+  group_by(nomCite, area, code_site, year, saison)%>%
+  summarize(ab.site = sum(abondance)) %>%
+  group_by(nomCite) %>%
+ mutate(mean.ab_TC = round(mean(ab.site),2), 
+        var.ab_TC = var(ab.site)) %>%
+  mutate(pa = case_when(ab.site == 0 ~ 0,
+                        ab.site > 0 ~ 1)) %>%
+  mutate(freq_TC = round(sum(pa) * 100 / nb.site[1])) %>%
+  distinct(nomCite, freq_TC, mean.ab_TC, var.ab_TC) %>%
+  filter(mean.ab_TC > 0)
+
+summary.TR <- TR.ALL.19.20$com %>%
+  gather("nomCite", "abondance", -idSINPRegroupement_tran) %>%
+  left_join(TR.ALL.19.20$data) %>%
+  group_by(nomCite, area, code_site, year, saison)%>%
+  summarize(ab.site = sum(abondance)) %>%
+  group_by(nomCite) %>%
+  mutate(mean.ab_TR = round(mean(ab.site),2), 
+        var.ab_TR = var(ab.site)) %>%
+  mutate(pa = case_when(ab.site == 0 ~ 0,
+                        ab.site > 0 ~ 1)) %>%
+  mutate(freq_TR = round(sum(pa) * 100 / nb.site[1])) %>%
+  distinct(nomCite, freq_TR, mean.ab_TR, var.ab_TR) %>%
+  filter(mean.ab_TR > 0) 
+  
+
+comp.summ <- full_join(summary.TR, summary.TC) %>%
+  gather("type.comp", "value", -nomCite) %>%
+  separate(type.comp, c("comp", "prot"), sep="_")
+
+freq.min <- comp.summ %>%
+  filter(comp == "freq" & value >= 5) %>%
+  distinct(nomCite) %>%
+  pull(nomCite)
+
+my_order <- comp.summ %>%
+  filter(comp == "freq") %>%
+  group_by(nomCite, comp) %>%
+  summarise(value = mean(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  arrange(value) %>%
+  pull(nomCite)
+
+comp.summ.2 <- comp.summ %>%
+  filter(comp!="var.ab") %>%
+  filter(nomCite %in% freq.min) %>%
+  mutate(nomCite=factor(nomCite, levels = my_order, ordered = TRUE)) %>%
+  mutate(value = ifelse(comp == "mean.ab", value * -1, value)) %>%
+  mutate(comp = gsub("freq", "Occurence (%)", comp),
+         comp = gsub("mean.ab", "Abondance moyenne", comp))
+
+
+ggplot(comp.summ.2, aes(x=nomCite, y=value, fill=prot))+
+  geom_bar(stat="identity", position=position_dodge(), color="black", alpha=0.8)+
+  ggpol::facet_share(~comp, dir = "h", scales = "free_x", reverse_num = TRUE) +
+  coord_flip() +
+  xlab("")+ylab("")+
+  theme_bw()+
+  scale_fill_manual(name = "Protocole", 
+                    labels = c("Temps", "Transect"),
+                    breaks = c("TC", "TR") ,
+                    values=c("#E69F00", "#1b9e77"))+
+  ggtitle("Abondance moyenne et occurence (%) des espèces qui occurent dans plus de 5% du jeu Mer 2019-2020")+
+  theme(legend.position = "bottom")
+```
+
+
+
+# Coinertie des patrons de communautés
+## Hellinger transformed community
+
+```{r}
+
+make.df.site.hell <- function(df){
+  
+  # Make data info at the site level
+  data.site.name <- df$data %>%
+    unite("sample_name", c(year, area, code_site, saison, habitat_type, cote_large)) %>%
+    select(sample_name, idSINPRegroupement_tran)
+  
+  data.site <- df$data %>%
+    unite("sample_name", c(year, area, code_site, saison), remove=F) %>%
+    distinct(sample_name, year, area, code_site, site, saison, habitat_type, cote_large)
+    
+  # Do mean of abundances at the site level
+  df.site <- df$com %>%
+    left_join(data.site.name, by="idSINPRegroupement_tran") %>%
+    gather("nomCite", "abondance", -idSINPRegroupement_tran, -sample_name) %>%
+    group_by(sample_name, nomCite) %>%
+    summarize(mean.site = mean(abondance)) %>%
+    spread(nomCite, mean.site) %>%
+    column_to_rownames(var = "sample_name")
+
+  
+  # Transform with Hellinger 
+  df.site.hell <- decostand(df.site, method="hellinger")
+  
+  com.data.hell <- list(data.site = data.site, com.site.hell = df.site.hell)
+  
+  return(com.data.hell)
+
+  
+}
+```
+
+```{r}
+#1 year - 1 area
+TR.IROI.19.site.hell <- make.df.site.hell(df = TR.IROI.19) 
+TC.IROI.19.site.hell <- make.df.site.hell(df = TC.IROI.19)
+
+TR.EMER.19.site.hell <- make.df.site.hell(df = TR.EMER.19)
+TC.EMER.19.site.hell <- make.df.site.hell(df = TC.EMER.19)
+
+TR.TREG.19.site.hell <- make.df.site.hell(df = TR.TREG.19)
+TC.TREG.19.site.hell <- make.df.site.hell(df = TC.TREG.19)
+
+TR.IROI.20.site.hell <- make.df.site.hell(df = TR.IROI.20)
+TC.IROI.20.site.hell <- make.df.site.hell(df = TC.IROI.20)
+
+#1 year - all areas
+TR.ALL.19.site.hell <- make.df.site.hell(df = TR.ALL.19)
+TC.ALL.19.site.hell <- make.df.site.hell(df = TC.ALL.19)
+
+# 2019-2020 - Mer Iroise
+TR.IROI.19.20.site.hell <- make.df.site.hell(df = TR.IROI.19.20)
+TC.IROI.19.20.site.hell <- make.df.site.hell(df = TC.IROI.19.20)
+
+# 2019-2020 - all areas
+TR.ALL.19.20.site.hell <- make.df.site.hell(df = TR.ALL.19.20)
+TC.ALL.19.20.site.hell <- make.df.site.hell(df = TC.ALL.19.20)
+```
+
+## Make coinertia
+
+```{r}
+make.coin <- function(x,y,z) {
+  
+  # secure dataset have the order of rownames
+  if(isTRUE(all(rownames(x)==rownames(y)))){
+    
+  
+    # pca on both matrices
+    df1_pc <- ade4::dudi.pca(x, scale = FALSE, 
+                       scannf = FALSE, nf = min(c((nrow(x)-1), ncol(x))))
+    df2_pc <- ade4::dudi.pca(y, scale = FALSE, 
+                       scannf = FALSE, nf = min(c((nrow(y)-1), ncol(y))))
+  
+    
+      # Equal row weights in the 2 analyses?
+      if(all.equal(df1_pc$lw, df2_pc$lw)){
+    
+        coin <- ade4::coinertia(df1_pc, df2_pc , scannf = FALSE, nf = z)
+    
+      } else {
+    
+        stop("dimensions are not the same")
+    
+      }
+    
+    # Coinertia analysis
+    return(coin)
+    
+  } else {
+  
+    stop("rownames with different name/order")
+  
+  }
+}
+
+#1 year - 1 area
+coin.IROI.19 <-  make.coin(x = TR.IROI.19.site.hell$com.site.hell,
+                           y = TC.IROI.19.site.hell$com.site.hell, 
+                           z = 2)
+coin.IROI.19$RV
+
+coin.EMER.19 <-  make.coin(x = TR.EMER.19.site.hell$com.site.hell,
+                           y = TC.EMER.19.site.hell$com.site.hell,
+                           z = 2)
+coin.EMER.19$RV
+
+coin.TREG.19 <-  make.coin(x = TR.TREG.19.site.hell$com.site.hell,
+                           y = TC.TREG.19.site.hell$com.site.hell,
+                           z = 2)
+coin.TREG.19$RV
+
+coin.IROI.20 <-  make.coin(x = TR.IROI.20.site.hell$com.site.hell,
+                           y = TC.IROI.20.site.hell$com.site.hell,
+                           z = 2)
+coin.IROI.20$RV
+
+#1 year - all areas
+coin.ALL.19 <-  make.coin(x = TR.ALL.19.site.hell$com.site.hell,
+                          y = TC.ALL.19.site.hell$com.site.hell,
+                          z = 2)
+coin.ALL.19$RV
+
+# 2019-2020 - Mer Iroise
+coin.IROI.19.20 <-  make.coin(x = TR.IROI.19.20.site.hell$com.site.hell,
+                              y = TC.IROI.19.20.site.hell$com.site.hell,
+                              z = 2)
+coin.IROI.19.20$RV
+
+# 2019-2020 - all areas
+coin.ALL.19.20 <-  make.coin(x = TR.ALL.19.20.site.hell$com.site.hell,
+                             y = TC.ALL.19.20.site.hell$com.site.hell,
+                             z = 2)
+coin.ALL.19.20$RV
+```
+
+## Extract data for plot
+
+```{r}
+## --- Retrieve data from coinertia analyses for plot
+
+df.for.plot.coin <- function(coin){
+
+  # Extract site coordinates in the space of df1
+  pos.site.df1 <- coin$mX %>%
+    rownames_to_column("site") %>%
+    select(site, x = "NorS1", y = "NorS2")
+
+  # Extract site coordinates in the space of df2
+  pos.site.df2 <- coin$mY %>%
+    rownames_to_column("site") %>%
+    select(site, xend = "NorS1", yend = "NorS2")
+
+  # Binds sites positions
+  pos.site <- full_join(pos.site.df1, pos.site.df2) %>%
+    separate(site, c("year","area", "code_site","season", "habitat_type", "cote_large"), 
+             remove = F, sep= "_")
+
+  # Position of the labels
+  pos.label <- pos.site %>%
+    group_by(site) %>%
+    summarise(x = mean(c(x,xend)), y = mean(c(y, yend))) %>%
+    ungroup() %>%
+    separate(site, c("year","area", "code_site","season", "habitat_type", "cote_large"), 
+             remove = F, sep= "_")
+  
+  # Variance of the axes
+  var.axes <- round(coin$eig*100/sum(coin$eig),1)
+
+  # Plot species 
+  sp.df1 <- coin$co 
+  sp.df2 <- coin$li
+  
+  sp.df1 <- sp.df1 %>%
+    rownames_to_column(var="valid_name") %>%
+    mutate(vec.length = sqrt(Comp1^2 + Comp2^2)) %>%
+    mutate(vec.leng.thresh = case_when(vec.length > quantile(vec.length , 0.6) ~ "supThresh"))
+  
+  sp.df2 <- sp.df2 %>%
+    rownames_to_column(var="valid_name") %>%
+    mutate(vec.length = sqrt(Axis1^2 + Axis2^2)) %>%
+    mutate(vec.leng.thresh = case_when(vec.length > quantile(vec.length , 0.6) ~ "supThresh"))
+  
+  df <- list("pos.site"=pos.site, "pos.label"=pos.label, 
+             "var.axes"=var.axes, 
+             "sp.df1"=sp.df1, "sp.df2"=sp.df2)
+  return(df)
+  
+}
+
+#1 year - 1 area
+coin.IROI.19.df.plot <- df.for.plot.coin(coin.IROI.19)
+
+coin.EMER.19.df.plot <- df.for.plot.coin(coin.EMER.19)
+  
+coin.TREG.19.df.plot <- df.for.plot.coin(coin.TREG.19)
+
+coin.IROI.20.df.plot <- df.for.plot.coin(coin.IROI.20)
+
+#1 year - all areas
+coin.ALL.19.df.plot <- df.for.plot.coin(coin.ALL.19)
+  
+# 2019-2020 - Mer Iroise
+coin.IROI.19.20.df.plot <- df.for.plot.coin(coin.IROI.19.20)
+
+# 2019-2020 - all areas
+coin.ALL.19.20.df.plot <- df.for.plot.coin(coin.ALL.19.20)
+```
+
+## Plot
+
+  + Tregor - 2019
+  
+```{r}
+df <- coin.TREG.19.df.plot
+
+p.coin.sites <- ggplot(df$pos.site, aes(x = x, y = y, color = habitat_type, linetype = cote_large)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_point(size = 4) +
+  geom_segment(aes(xend = xend, yend = yend), arrow = arrow(length=unit(0.3,"cm"),type="closed")) +
+  geom_text_repel(aes(label = code_site), size = 3, data = df$pos.label) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  ggtitle("TREGOR - 2019 - saison 2") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlim(-2, 2)+
+  ylim(-2, 2)
+
+p.coin.sp1 <- ggplot(df$sp.df1, aes(x = Comp1, y = Comp2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_text_repel(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  geom_segment(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Comp1, y=0, yend = Comp2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom")
+
+p.coin.sp2 <- ggplot(df$sp.df2, aes(x = Axis1, y = Axis2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_segment(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Axis1, y=0, yend = Axis2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  geom_text_repel(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  #scale_size_manual(values = c(3.5,4))+
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom") 
+
+
+
+ggarrange(p.coin.sites, 
+            ggarrange(p.coin.sp1, p.coin.sp2, nrow = 2, labels = c("B", "C")), 
+          ncol = 2, 
+          labels = "A"                                       
+          ) 
+
+
+#ggarrange(p.coin.sp1, p.coin.sp2, p.coin.sites, ncols = 2, heights  = c(1,2) )
+
+```
+  
+  
+  + Cote d Emeraude - 2019  
+
+```{r}
+df <- coin.EMER.19.df.plot
+
+p.coin.sites <- ggplot(df$pos.site, aes(x = x, y = y, color = habitat_type, linetype = cote_large)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_point(size = 4) +
+  geom_segment(aes(xend = xend, yend = yend), arrow = arrow(length=unit(0.3,"cm"),type="closed")) +
+  geom_text_repel(aes(label = code_site), size = 3, data = df$pos.label) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  ggtitle("Cote d' Emeraude - 2019 - saison 1") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlim(-1.5, 1.5)+
+  ylim(-1.5, 1.5)
+
+p.coin.sp1 <- ggplot(df$sp.df1, aes(x = Comp1, y = Comp2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_text_repel(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  geom_segment(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Comp1, y=0, yend = Comp2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom")
+
+p.coin.sp2 <- ggplot(df$sp.df2, aes(x = Axis1, y = Axis2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_segment(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Axis1, y=0, yend = Axis2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  geom_text_repel(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom") 
+
+
+ggarrange(p.coin.sites, 
+            ggarrange(p.coin.sp1, p.coin.sp2, nrow = 2, labels = c("B", "C")), 
+          ncol = 2, 
+          labels = "A"                                       
+          ) 
+
+```
+
+  + Iroise - 2019
+  
+```{r}
+df <- coin.IROI.19.df.plot
+
+p.coin.sites <- ggplot(df$pos.site, aes(x = x, y = y, color = season, linetype = habitat_type)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_point(size = 4) +
+  geom_segment(aes(xend = xend, yend = yend), arrow = arrow(length=unit(0.3,"cm"),type="closed")) +
+  geom_text_repel(aes(label = code_site), size = 3, data = df$pos.label) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  ggtitle("Mer d Iroise - 2019 - saison 1&2") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlim(-3.25, 3.25)+
+  ylim(-3.25, 3.25)
+
+p.coin.sp1 <- ggplot(df$sp.df1, aes(x = Comp1, y = Comp2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_text_repel(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  geom_segment(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Comp1, y=0, yend = Comp2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom")
+
+p.coin.sp2 <- ggplot(df$sp.df2, aes(x = Axis1, y = Axis2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_segment(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Axis1, y=0, yend = Axis2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  geom_text_repel(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  #scale_size_manual(values = c(3.5,4))+
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom") 
+
+
+
+ggarrange(p.coin.sites, 
+            ggarrange(p.coin.sp1, p.coin.sp2, nrow = 2, labels = c("B", "C")), 
+          ncol = 2, 
+          labels = "A"                                       
+          ) 
+
+```
+  
+  
+  + Iroise - 2020
+  
+```{r}
+
+df <- coin.IROI.20.df.plot
+
+p.coin.sites <- ggplot(df$pos.site, aes(x = x, y = y, color = season, linetype = habitat_type)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_point(size = 4) +
+  geom_segment(aes(xend = xend, yend = yend), arrow = arrow(length=unit(0.3,"cm"),type="closed")) +
+  geom_text_repel(aes(label = code_site), size = 3, data = df$pos.label) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  ggtitle("Mer d Iroise - 2020 - saison 1&2") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlim(-3, 3)+
+  ylim(-3, 3)
+
+p.coin.sp1 <- ggplot(df$sp.df1, aes(x = Comp1, y = Comp2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_text_repel(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  geom_segment(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Comp1, y=0, yend = Comp2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom")
+
+p.coin.sp2 <- ggplot(df$sp.df2, aes(x = Axis1, y = Axis2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_segment(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Axis1, y=0, yend = Axis2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  geom_text_repel(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  #scale_size_manual(values = c(3.5,4))+
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom") 
+
+
+ggarrange(p.coin.sites, 
+            ggarrange(p.coin.sp1, p.coin.sp2, nrow = 2, labels = c("B", "C")), 
+          ncol = 2, 
+          labels = "A"                                       
+          ) 
+
+```
+  
+  
+  + Iroise - 2019-2020
+    
+```{r}
+
+df <- coin.IROI.19.20.df.plot
+
+p.coin.sites <- ggplot(df$pos.site, aes(x = x, y = y, color = season, linetype = year)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_point(size = 4) +
+  geom_segment(aes(xend = xend, yend = yend), arrow = arrow(length=unit(0.3,"cm"),type="closed")) +
+  geom_text_repel(aes(label = code_site), size = 3, data = df$pos.label) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  ggtitle("Mer d Iroise - 2019-2020 - saison 1&2") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlim(-3.15, 3.15)+
+  ylim(-3.15, 3.15)
+
+p.coin.sp1 <- ggplot(df$sp.df1, aes(x = Comp1, y = Comp2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_text_repel(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  geom_segment(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Comp1, y=0, yend = Comp2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom")
+
+p.coin.sp2 <- ggplot(df$sp.df2, aes(x = Axis1, y = Axis2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_segment(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Axis1, y=0, yend = Axis2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  geom_text_repel(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  #scale_size_manual(values = c(3.5,4))+
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom") 
+
+
+ggarrange(p.coin.sites, 
+            ggarrange(p.coin.sp1, p.coin.sp2, nrow = 2, labels = c("B", "C")), 
+          ncol = 2, 
+          labels = "A"                                       
+          ) 
+
+```
+  
+  + All areas - 2019
+    
+```{r}
+
+df <- coin.ALL.19.df.plot
+
+p.coin.sites <- ggplot(df$pos.site, aes(x = x, y = y, color = area, linetype = season)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_point(size = 4) +
+  geom_segment(aes(xend = xend, yend = yend), arrow = arrow(length=unit(0.3,"cm"),type="closed")) +
+  geom_text_repel(aes(label = code_site), size = 3, data = df$pos.label) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  ggtitle("All areas - 2019 - saison 1&2") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlim(-2, 2)+
+  ylim(-2, 2)
+
+p.coin.sp1 <- ggplot(df$sp.df1, aes(x = Comp1, y = Comp2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_text_repel(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  geom_segment(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Comp1, y=0, yend = Comp2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom")
+
+p.coin.sp2 <- ggplot(df$sp.df2, aes(x = Axis1, y = Axis2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_segment(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Axis1, y=0, yend = Axis2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  geom_text_repel(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  #scale_size_manual(values = c(3.5,4))+
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom") 
+
+
+ggarrange(p.coin.sites, 
+            ggarrange(p.coin.sp1, p.coin.sp2, nrow = 2, labels = c("B", "C")), 
+          ncol = 2, 
+          labels = "A"                                       
+          ) 
+
+```
+
+  + All areas - 2019-2020
+```{r}
+
+df <- coin.ALL.19.20.df.plot
+
+df$pos.label <- df$pos.site %>% unite(new, c(code_site, year), remove=F)
+
+p.coin.sites <- ggplot(df$pos.site, aes(x = x, y = y, color = area, linetype = season)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_point(size = 4) +
+  geom_segment(aes(xend = xend, yend = yend), arrow = arrow(length=unit(0.3,"cm"),type="closed")) +
+  #geom_text_repel(aes(label = new), size = 3, data = df$pos.label) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  ggtitle("All areas - 2019-2020 - saison 1&2") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlim(-3.1, 3.1)+
+  ylim(-3.1, 3.1)
+
+p.coin.sp1 <- ggplot(df$sp.df1, aes(x = Comp1, y = Comp2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_text_repel(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  geom_segment(data = df$sp.df1 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Comp1, y=0, yend = Comp2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom")
+
+p.coin.sp2 <- ggplot(df$sp.df2, aes(x = Axis1, y = Axis2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_segment(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+               aes(x=0, xend = Axis1, y=0, yend = Axis2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  geom_text_repel(data = df$sp.df2 %>%
+                 filter(vec.leng.thresh == "supThresh"),
+                   aes(label=valid_name)) +
+  #scale_size_manual(values = c(3.5,4))+
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=14))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom") 
+
+
+ggarrange(p.coin.sites, 
+            ggarrange(p.coin.sp1, p.coin.sp2, nrow = 2, labels = c("B", "C")), 
+          ncol = 2, 
+          labels = "A"                                       
+          ) 
+
+```
+
+
+  + xx
+```{r eval=FALSE}
+
+plot.coin <- function(df){
+  
+  ## --- Do the triplots 
+
+p.coin.sites <- ggplot(df$pos.site, aes(x = x, y = y, color= code_site)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_point(size = 4) +
+  geom_segment(aes(xend = xend, yend = yend), arrow = arrow(length=unit(0.3,"cm"),type="closed")) +
+  geom_text_repel(aes(label = site), size = 3, data = df$pos.label) +
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=18))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())#+
+  #xlim(-2, 2)+
+  #ylim(-2, 2)
+
+p.coin.sp1 <- ggplot(df$sp.df1, aes(x = Comp1, y = Comp2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_segment(aes(x=0, xend = Comp1, y=0, yend = Comp2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  geom_text_repel(aes(label=valid_name)) +
+  #scale_size_manual(values = c(3.5,4))+
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=18))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom") #+
+  #xlim(-0.030, 0.020)#+
+  #ylim(-0.030, 0.020)
+
+p.coin.sp2 <- ggplot(df$sp.df2, aes(x = Axis1, y = Axis2)) +
+  geom_hline(yintercept = 0, size = 0.2, linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.2, linetype = "dashed") +
+   geom_segment(aes(x=0, xend = Axis1, y=0, yend = Axis2), 
+               size=0.75,
+               arrow = arrow(length=unit(0.3,"cm"))) +
+  geom_text_repel(aes(label=valid_name)) +
+  #scale_size_manual(values = c(3.5,4))+
+  coord_fixed(ratio = 1) +
+  theme_linedraw() +
+  theme(text=element_text(size=18))+
+  xlab(paste("Coinertia 1 (",df$var.axes[1],"%)", sep="")) + 
+  ylab(paste("Coinertia 2 (",df$var.axes[2],"%)", sep="")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position = "bottom") #+
+  #xlim(-0.015, 0.015)+
+  #ylim(-0.015, 0.015)
+
+  #ggarrange(p.coin.sp1, p.coin.sp2, p.coin.sites, ncols = 2)
+
+  p.coin.sites
+}
+
+
+plot.coin(df = coin.EMER.19.df.plot)
+plot.coin(df = coin.IROI.19.df.plot)
+plot.coin(df = coin.TREG.19.df.plot)
+
+plot.coin(df = coin.IROI.20.df.plot)
+plot.coin(df = coin.ALL.19.df.plot)
+
+plot.coin(df = coin.IROI.19.20.df.plot)
+plot.coin(df = coin.ALL.19.20.df.plot)
+
+```
+
+
+
+# Comparaison de métriques univariées
+
+Comparer richesses spécifique, abondance des espèces Lieu jaune (+ P/M/G) et Labrus bergylta, entre protocoles (courbe type x ~y )
+
+
+## Abundance
+```{r eval=FALSE}
+y <- TC.com.common.19.20.ok %>%
+  gather("nomCite", "abondance", -idSINPRegroupement_tran) %>%
+  left_join(TC.data.common.19.20) %>%
+  #group_by(nomCite, area, year, saison, site, prof_cible_corr.FINAL)%>%
+  group_by(nomCite, area, year, saison, site)%>%
+  summarize(suma.sp.TC = sum(abondance))
+
+x <- TR.com.common.19.20.ok %>%
+  gather("nomCite", "abondance", -idSINPRegroupement_tran) %>%
+  left_join(TR.data.common.19.20) %>%
+  mutate(prof_cible_corr.FINAL = as.numeric(as.vector(prof_cible_corr.FINAL))) %>%
+  #group_by(nomCite, area, year, saison, site, prof_cible_corr.FINAL)%>%
+  group_by(nomCite, area, year, saison, site)%>%
+  summarize(suma.sp.TR = sum(abondance)) 
+
+data <- full_join(x, y) %>%
+  filter(!is.na(suma.sp.TR) & !is.na(suma.sp.TC))
+
+# function to plot
+formula <- y ~x
+
+  
+ggplot(data , aes(x=suma.sp.TR, y=suma.sp.TC, color=year)) +
+    facet_wrap(~area + year, scales="free")+
+    geom_point(size=3, alpha=0.8)+
+    scale_x_continuous(trans='log') +
+    scale_y_continuous(trans='log') +
+    geom_abline(intercept = 0, slope=1, color="darkgrey", linetype="dotted", size=2)+
+    geom_smooth(method = lm, formula=formula, color="lightgrey", fill="lightgrey", size=2) +
+    stat_poly_eq(aes(label =  paste(stat(eq.label),
+                                  stat(rr.label),
+                                  stat(f.value.label),
+                                  stat(p.value.label),
+                                  sep = "*\", \"*")), 
+               formula = formula, parse = TRUE, size = 3.5)+
+    theme_bw() +
+    theme(axis.text.x = element_text(size=12), 
+        axis.text.y = element_text(size=12), 
+        axis.title.x = element_text(size=12, face="bold"),
+        axis.title.y = element_text(size=12, face="bold"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12))#+
+   #coord_equal(xlim = c(0, 100), ylim = c(0, 100))
+  
+
+```
+
+## Richesse
+
+```{r eval=FALSE}
+y <- TC.com.common.19.20.ok %>%
+  gather("nomCite", "abondance", -idSINPRegroupement_tran) %>%
+  left_join(TC.data.common.19.20) %>%
+  filter(abondance > 0) %>%
+  group_by(area, year, saison, site)%>%
+  summarize(nb.sp.TC = n_distinct(nomCite))
+
+x <- TR.com.common.19.20.ok %>%
+  gather("nomCite", "abondance", -idSINPRegroupement_tran) %>%
+  left_join(TR.data.common.19.20) %>%
+  mutate(prof_cible_corr.FINAL = as.numeric(as.vector(prof_cible_corr.FINAL)))  %>%
+  filter(abondance > 0) %>%
+  group_by(area, year, saison, site)%>%
+  summarize(nb.sp.TR = n_distinct(nomCite))
+
+data <- full_join(x, y) %>%
+  filter(area == "Mer d Iroise") %>%
+  mutate(type.hab = site) %>%
+  mutate(type.hab = gsub("^.*\\(", "", type.hab), 
+         type.hab = gsub("\\)", "", type.hab))
+
+# function to plot
+formula <- y ~x
+
+  
+ggplot(data, aes(x=nb.sp.TR, y=nb.sp.TC)) +
+    #facet_wrap(vars(type.hab), scales="free")+
+    geom_point(aes(color=type.hab),size=3, alpha=0.8, position = position_jitter(width = 1, height = 1))+
+    geom_abline(intercept = 0, slope=1, color="darkgrey", linetype="dotted", size=2)+
+    geom_smooth(method = lm, formula=formula, color="lightgrey", fill="lightgrey", size=2) +
+      stat_poly_eq(aes(label =  paste(stat(eq.label),
+                                  stat(rr.label),
+                                  stat(f.value.label),
+                                  stat(p.value.label),
+                                  sep = "*\", \"*")), 
+               formula = formula, parse = TRUE, size = 3.5)+
+    theme_bw() +
+    theme(axis.text.x = element_text(size=12), 
+        axis.text.y = element_text(size=12), 
+        axis.title.x = element_text(size=12, face="bold"),
+        axis.title.y = element_text(size=12, face="bold"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12))
+```
+
+
+
+```{r}
+
+```
+
+
+# Sessioninfo
+
+```{r}
+sessionInfo()
+```
+
